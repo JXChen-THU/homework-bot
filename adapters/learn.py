@@ -1,0 +1,211 @@
+import os
+import json
+from playwright.sync_api import sync_playwright
+from .base import Homework, LoginRequiredError, session_path
+
+
+def _get_courses(page):
+    js = """() => {
+        const seen = new Set();
+        const courses = [];
+        function scan(doc) {
+            try {
+                doc.querySelectorAll('a[href*="wlkcid"]').forEach(a => {
+                    const href = a.getAttribute('href') || '';
+                    const m = href.match(/wlkcid=([^&]+)/);
+                    if (!m) return;
+                    const id = m[1];
+                    if (seen.has(id)) return;
+                    let node = a;
+                    for (let i = 0; i < 8; i++) {
+                        if (!node.parentElement) break;
+                        node = node.parentElement;
+                        const text = (node.innerText || '').replace(/\\s+/g, ' ').trim();
+                        const mm = text.match(/^(.+?)\\(\\d{8}-\\d+\\)/);
+                        if (mm) {
+                            seen.add(id);
+                            courses.push({id: id, name: mm[1]});
+                            break;
+                        }
+                    }
+                });
+            } catch(e) {}
+            try {
+                doc.querySelectorAll('iframe').forEach(f => {
+                    try { if (f.contentDocument) scan(f.contentDocument); } catch(e) {}
+                });
+            } catch(e) {}
+        }
+        scan(document);
+        return courses;
+    }"""
+    try:
+        return page.evaluate(js)
+    except Exception:
+        return []
+
+
+def _fetch_one_course(page, course_id, csrf):
+    js = """async (args) => {
+        const [courseId, csrf] = args;
+        const aoData = [
+            {name: "sEcho", value: 1},
+            {name: "iColumns", value: 8},
+            {name: "sColumns", value: ",,,,,,,"},
+            {name: "iDisplayStart", value: 0},
+            {name: "iDisplayLength", value: "200"},
+            {name: "mDataProp_0", value: "wz"},
+            {name: "bSortable_0", value: false},
+            {name: "mDataProp_1", value: "bt"},
+            {name: "bSortable_1", value: true},
+            {name: "mDataProp_2", value: "mxdxmc"},
+            {name: "bSortable_2", value: true},
+            {name: "mDataProp_3", value: "zywcfs"},
+            {name: "bSortable_3", value: true},
+            {name: "mDataProp_4", value: "kssj"},
+            {name: "bSortable_4", value: true},
+            {name: "mDataProp_5", value: "jzsj"},
+            {name: "bSortable_5", value: true},
+            {name: "mDataProp_6", value: "jzsj"},
+            {name: "bSortable_6", value: true},
+            {name: "mDataProp_7", value: "function"},
+            {name: "bSortable_7", value: false},
+            {name: "iSortCol_0", value: 5},
+            {name: "sSortDir_0", value: "desc"},
+            {name: "iSortCol_1", value: 6},
+            {name: "sSortDir_1", value: "desc"},
+            {name: "iSortingCols", value: 2},
+            {name: "wlkcid", value: courseId}
+        ];
+
+        const params = new URLSearchParams();
+        params.append('_csrf', csrf);
+        params.append('_csrf', csrf);
+        params.append('aoData', JSON.stringify(aoData));
+
+        const url = '/b/wlxt/kczy/zy/student/zyListWj?_csrf=' + csrf + '&_csrf=' + csrf;
+
+        try {
+            const r = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: params.toString()
+            });
+            const text = await r.text();
+            return {httpStatus: r.status, body: text};
+        } catch(e) {
+            return {httpStatus: 0, body: 'fetch_error: ' + e.toString()};
+        }
+    }"""
+    return page.evaluate(js, [str(course_id), str(csrf)])
+
+
+def _extract(data, site, course_name=""):
+    result = []
+    if not isinstance(data, dict):
+        return result
+    obj = data.get("object") or {}
+    items = obj.get("aaData") or []
+    for t in items:
+        zyid = t.get("zyid")
+        if not zyid:
+            continue
+        result.append(Homework(
+            site=site["id"],
+            site_name=site["name"],
+            uid=f"{site['id']}:{zyid}",
+            title=t.get("bt") or "未命名作业",
+            course=course_name,
+            start=t.get("kssjStr") or "",
+            end=t.get("jzsjStr") or "",
+            url="https://learn.tsinghua.edu.cn/b/wlxt/kczy/zy/student/index",
+        ))
+    return result
+
+
+def fetch_homeworks(site, base_dir):
+    session = session_path(site, base_dir)
+    if not os.path.exists(session):
+        raise LoginRequiredError(site["id"], site["name"])
+
+    cache_file = os.path.join(base_dir, f"{site['id']}_courses.json")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, channel="msedge")
+        ctx = browser.new_context(storage_state=session)
+        page = ctx.new_page()
+        page.goto(site["base_url"])
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(3000)
+
+        if "login" in page.url.lower() or "sso" in page.url.lower():
+            browser.close()
+            raise LoginRequiredError(site["id"], site["name"])
+
+        configured = site.get("courses") or []
+        if configured:
+            courses = [{"id": c["wlkcid"], "name": c.get("name", "")} for c in configured]
+        elif os.path.exists(cache_file):
+            with open(cache_file, encoding="utf-8") as f:
+                raw = json.load(f)
+            if raw and isinstance(raw[0], str):
+                courses = [{"id": x, "name": ""} for x in raw]
+            else:
+                courses = raw
+        else:
+            courses = _get_courses(page)
+            if courses:
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    json.dump(courses, f, ensure_ascii=False, indent=2)
+
+        if not courses:
+            browser.close()
+            return []
+
+        csrf = ''
+        for c in ctx.cookies():
+            n = c['name'].lower()
+            if 'csrf' in n or 'xsrf' in n:
+                csrf = c['value']
+                break
+
+        all_homeworks = []
+        for c in courses:
+            data = _fetch_one_course(page, c["id"], csrf)
+            body = data.get("body") if isinstance(data, dict) else ""
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = None
+            if parsed:
+                all_homeworks.extend(_extract(parsed, site, c.get("name", "")))
+
+        browser.close()
+        return all_homeworks
+
+
+def login(site, base_dir):
+    session = session_path(site, base_dir)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.goto(site["base_url"])
+
+        logged_in = False
+        for _ in range(100):
+            page.wait_for_timeout(3000)
+            try:
+                u = page.url.lower()
+                if "login" not in u and "sso" not in u and "auth" not in u:
+                    if "wlxt" in page.content() or "课程" in page.content():
+                        logged_in = True
+                        break
+            except Exception:
+                pass
+
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in

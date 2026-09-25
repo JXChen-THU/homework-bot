@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>警告</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; }
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #e74c3c;
+  color: white;
+  padding: 8px 12px;
+  overflow: hidden;
+}
+.header {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header button {
+  font-size: 11px;
+  padding: 3px 9px;
+  background: rgba(255,255,255,0.25);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.header button:hover { background: rgba(255,255,255,0.4); }
+.item {
+  font-size: 12px;
+  margin-bottom: 4px;
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.item input[type=checkbox] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #ffffff;
+}
+.item .title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item .time {
+  opacity: 0.9;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.more {
+  font-size: 11px;
+  opacity: 0.85;
+  margin-top: 4px;
+  padding-left: 26px;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <span>⚠️ 紧急 / 已过期</span>
+  <button id="toggle-main-btn" onclick="onToggleMain(event)">打开</button>
+</div>
+<div id="list"></div>
+<script>
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function fmtHours(h) {
+  if (h < 0) return '已过期 ' + Math.abs(h).toFixed(1) + 'h';
+  if (h < 1) return '剩 ' + Math.max(1, Math.round(h * 60)) + '分';
+  return '剩 ' + h.toFixed(1) + 'h';
+}
+function update(items) {
+  const list = document.getElementById('list');
+  if (!items || !items.length) { list.innerHTML = ''; return; }
+  let html = '';
+  items.slice(0, 8).forEach(it => {
+    html += `
+      <div class="item">
+        <input type="checkbox" data-uid="${escapeHtml(it.uid)}" />
+        <span class="title">${escapeHtml(it.title)}</span>
+        <span class="time">${fmtHours(it.hours_left)}</span>
+      </div>`;
+  });
+  if (items.length > 8) {
+    html += `<div class="more">...还有 ${items.length - 8} 条</div>`;
+  }
+  list.innerHTML = html;
+
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const uid = cb.dataset.uid;
+      cb.disabled = true;
+      try {
+        await window.pywebview.api.toggle_done(uid, true);
+      } catch (err) {}
+    });
+  });
+}
+
+let mainVisible = false;
+
+async function refreshMainVisible() {
+  try {
+    const r = await window.pywebview.api.is_main_visible();
+    mainVisible = !!(r && r.visible);
+  } catch (e) {
+    mainVisible = false;
+  }
+  const btn = document.getElementById('toggle-main-btn');
+  btn.textContent = mainVisible ? '关闭' : '打开';
+}
+
+async function onToggleMain(e) {
+  if (e) e.stopPropagation();
+  try {
+    if (mainVisible) {
+      await window.pywebview.api.hide_main();
+    } else {
+      await window.pywebview.api.show_main();
+    }
+  } catch (err) {}
+  setTimeout(refreshMainVisible, 80);
+}
+
+window.__updateUrgent = update;
+
+window.addEventListener('pywebviewready', async () => {
+  window.pywebview.api.alert_ready();
+  await refreshMainVisible();
+  setInterval(refreshMainVisible, 1000);
+});
+</script>
+</body>
+</html>

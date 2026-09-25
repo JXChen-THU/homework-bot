@@ -1,0 +1,7 @@
+requests
+pyyaml
+python-dateutil
+icalendar
+playwright
+pywebview
+win10toast

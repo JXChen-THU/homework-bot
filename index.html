@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>任务清单</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #f5f6fa;
+  color: #2c3e50;
+  padding: 24px;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+h1 { font-size: 22px; font-weight: 600; }
+.actions { display: flex; gap: 8px; }
+.actions button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  color: #3a4a4a;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#add-btn      { background: #A8BBA2; }
+#add-btn:hover { background: #97AB91; }
+#refresh-btn  { background: #A1B2BD; }
+#refresh-btn:hover { background: #90A2AD; }
+#settings-btn { background: #C1A9B0; }
+#settings-btn:hover { background: #B199A0; }
+
+.banner {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.banner.warn { background: #fff8e6; color: #8a6d3b; border: 1px solid #ffe58f; }
+.banner.err { background: #fdecea; color: #a94442; border: 1px solid #f5c6cb; }
+.banner button {
+  margin-top: 8px;
+  padding: 6px 14px;
+  background: #4a69bd;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.banner button:hover { background: #3c58a8; }
+.banner button.secondary { background: #8a6d3b; }
+.banner button.secondary:hover { background: #6f562f; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 2px solid #e1e6ee;
+}
+.tab {
+  padding: 10px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #7f8c8d;
+  border: none;
+  background: none;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.15s;
+}
+.tab:hover { color: #4a69bd; }
+.tab.active { color: #4a69bd; border-bottom-color: #4a69bd; }
+.tab .count {
+  display: inline-block;
+  background: #eef1f7;
+  color: #4a69bd;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  margin-left: 4px;
+}
+.tab.active .count { background: #4a69bd; color: white; }
+
+.list { display: flex; flex-direction: column; gap: 8px; }
+
+.item {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  background: white;
+  border-radius: 8px;
+  border-left: 4px solid #4a69bd;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: all 0.2s;
+}
+.item.urgent { border-left-color: #e74c3c; background: #fff5f5; }
+.item.expired { border-left-color: #c0392b; background: #fdecea; }
+.item.done {
+  opacity: 0.55;
+  border-left-color: #bdc3c7;
+  background: #fafafa;
+}
+.item.done .title .text { text-decoration: line-through; }
+
+.item input[type=checkbox] {
+  width: 20px; height: 20px;
+  margin-right: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.info { flex: 1; min-width: 0; }
+.title {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.title .text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #eef1f7;
+  color: #4a69bd;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.badge.manual { background: #fef3e2; color: #d68910; }
+.meta { font-size: 13px; color: #7f8c8d; }
+.item.urgent .meta { color: #c0392b; font-weight: 500; }
+.item.expired .meta { color: #c0392b; }
+
+.days {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4a69bd;
+  margin-left: 12px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.item.urgent .days { color: #e74c3c; }
+.item.expired .days { color: #c0392b; }
+.item.done .days { color: #bdc3c7; }
+
+.del {
+  margin-left: 10px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border: none;
+  background: #f5f6fa;
+  color: #95a5a6;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.item:hover .del { opacity: 1; }
+.del:hover { background: #fdecea; color: #c0392b; }
+
+.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #95a5a6;
+  font-size: 15px;
+}
+.empty .big { font-size: 48px; margin-bottom: 16px; }
+.empty .msg { color: #27ae60; font-weight: 500; font-size: 17px; }
+
+.modal-bg {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: white;
+  border-radius: 10px;
+  padding: 24px;
+  width: 460px;
+  max-width: 90vw;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.modal h2 { font-size: 18px; margin-bottom: 18px; }
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 13px;
+  color: #54626f;
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.field input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #d6dde6;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.field input:focus { outline: none; border-color: #4a69bd; }
+.field .hint { font-size: 12px; color: #95a5a6; margin-top: 4px; }
+.modal .error {
+  color: #c0392b;
+  font-size: 13px;
+  margin-bottom: 10px;
+  min-height: 18px;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.modal-actions button {
+  padding: 9px 22px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+.modal-actions .cancel { background: #eef1f7; color: #54626f; }
+.modal-actions .ok { background: #4a69bd; color: white; }
+.modal-actions .ok:hover { background: #3c58a8; }
+
+.section {
+  padding: 16px 0;
+  border-bottom: 1px solid #eef1f7;
+}
+.section:last-of-type { border-bottom: none; }
+.section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #54626f;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.section-actions button {
+  padding: 7px 20px;
+  border-radius: 6px;
+  border: none;
+  background: #4a69bd;
+  color: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+.section-actions button:hover { background: #3c58a8; }
+.section-actions button:disabled { background: #bdc3c7; cursor: not-allowed; }
+.apply-hint {
+  font-size: 12px;
+  color: #95a5a6;
+}
+.apply-hint.ok { color: #27ae60; }
+.apply-hint.warn { color: #d68910; }
+
+.site-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  gap: 10px;
+  transition: all 0.15s;
+  flex-wrap: wrap;
+}
+.site-row.disabled { opacity: 0.55; }
+.site-row.deleted {
+  background: #fdecea;
+  border-color: #f5c6cb;
+  opacity: 0.7;
+}
+.site-row.deleted .name {
+  text-decoration: line-through;
+  color: #c0392b;
+}
+.site-row .name { font-size: 14px; font-weight: 500; }
+.site-row .type {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #eef1f7;
+  color: #4a69bd;
+}
+.site-row .sess {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.site-row .sess.ok { background: #e8f5e9; color: #2e7d32; }
+.site-row .sess.no { background: #fdecea; color: #c0392b; }
+.site-row .cred {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #fff3cd;
+  color: #8a6d3b;
+}
+.site-row .spacer { flex: 1; }
+.site-row button {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: 5px;
+  border: 1px solid #d6dde6;
+  background: white;
+  color: #54626f;
+  cursor: pointer;
+}
+.site-row button:hover { background: #f5f6fa; }
+.site-row button.danger { color: #c0392b; border-color: #f5c6cb; }
+.site-row button.danger:hover { background: #fdecea; }
+.site-row button.pending {
+  background: #fff3cd;
+  color: #8a6d3b;
+  border-color: #ffe58f;
+}
+.site-row button.pending:hover { background: #ffe9a8; }
+.site-row button.cred-btn {
+  color: #8a6d3b;
+  border-color: #ffe58f;
+  background: #fff8e6;
+}
+.site-row button.cred-btn:hover { background: #ffe9a8; }
+
+.switch {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  background: #ccc;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.switch.on { background: #4a69bd; }
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: left 0.2s;
+}
+.switch.on::after { left: 20px; }
+
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e1e6ee;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+.auto-row .label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+.auto-row .status {
+  font-size: 12px;
+  color: #95a5a6;
+}
+.auto-row .status.on { color: #27ae60; font-weight: 500; }
+.auto-hint {
+  font-size: 12px;
+  color: #95a5a6;
+  margin-top: 8px;
+  padding-left: 2px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📋 任务</h1>
+  <div class="actions">
+    <button id="add-btn">添加任务</button>
+    <button id="refresh-btn">刷新任务</button>
+    <button id="settings-btn">设置</button>
+  </div>
+</header>
+
+<div id="banners"></div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="todo">未完成 <span class="count" id="cnt-todo">0</span></button>
+  <button class="tab" data-tab="done">已完成 <span class="count" id="cnt-done">0</span></button>
+</div>
+
+<div id="content"></div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2>添加任务</h2>
+    <div class="error" id="modal-error"></div>
+    <div class="field">
+      <label>标题 *</label>
+      <input id="m-title" placeholder="例如：写实验报告" />
+    </div>
+    <div class="field">
+      <label>课程 / 备注</label>
+      <input id="m-course" placeholder="可选" />
+    </div>
+    <div class="field">
+      <label>截止时间 *</label>
+      <input id="m-due" type="datetime-local" />
+      <div class="hint">格式：年-月-日 时:分</div>
+    </div>
+    <div class="field">
+      <label>链接</label>
+      <input id="m-url" placeholder="可选，例如作业页面网址" />
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" id="m-cancel">取消</button>
+      <button class="ok" id="m-ok">添加</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="settings-bg">
+  <div class="modal" style="width: 660px;">
+    <h2>设置</h2>
+
+    <div class="section">
+      <h3>🌐 网站设置</h3>
+      <div id="site-list"></div>
+      <div class="section-actions">
+        <span class="apply-hint" id="apply-hint"></span>
+        <button id="apply-sites-btn">应用</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>🚀 开机自启动</h3>
+      <div class="auto-row">
+        <div class="switch" id="autostart-switch"></div>
+        <div class="label">开机自动启动任务清单</div>
+        <div class="status" id="autostart-status">未开启</div>
+      </div>
+      <div class="auto-hint">开启后，每次开机并联网后自动启动，主窗口在右下角、浮窗在右上角。</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="cancel" id="s-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="cred-bg">
+  <div class="modal">
+    <h2>填写账号密码</h2>
+    <div class="error" id="cred-error"></div>
+    <div style="font-size:13px;color:#7f8c8d;margin-bottom:14px;">
+      这是打开 Tyche 网站时浏览器弹出的第一个登录框，
+      <b>不是网站内部的账号密码</b>。请先填写，再回主界面点"登录"。
+    </div>
+    <div class="field">
+      <label>账号</label>
+      <input id="cred-user" placeholder="填写你的账号" />
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input id="cred-pass" type="password" placeholder="打开网站弹窗的密码" />
+    </div>
+    <div class="modal-actions">
+      <button class="cancel" id="cred-cancel">取消</button>
+      <button class="ok" id="cred-ok">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+const content = document.getElementById('content');
+const banners = document.getElementById('banners');
+const refreshBtn = document.getElementById('refresh-btn');
+const addBtn = document.getElementById('add-btn');
+const modalBg = document.getElementById('modal-bg');
+const modalError = document.getElementById('modal-error');
+let items = [];
+let currentTab = 'todo';
+
+function remainingMs(dateStr) {
+  if (!dateStr) return null;
+  const now = new Date();
+  const due = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(due)) return null;
+  return due - now;
+}
+
+function fmtRemaining(ms) {
+  if (ms === null) return '';
+  if (ms <= 0) return '已过期';
+  const h = ms / 3600000;
+  if (h < 24) return '还剩 ' + h.toFixed(1) + ' 小时';
+  const d = Math.floor(h / 24);
+  const rh = Math.floor(h % 24);
+  return '还剩 ' + d + ' 天 ' + rh + ' 小时';
+}
+
+function renderBanners(errors, needLogin) {
+  let html = '';
+  if (needLogin && needLogin.length) {
+    html += '<div class="banner warn"><div>需要登录以下站点：</div>';
+    needLogin.forEach(s => {
+      const credWarn = s.need_credentials
+        ? '（需先填写账号密码）'
+        : '';
+      html += `<button data-login-site="${escapeHtml(s.site_id)}">登录 ${escapeHtml(s.site_name)}${credWarn}</button>`;
+    });
+    html += '</div>';
+  }
+  if (errors && errors.length) {
+    html += '<div class="banner err">';
+    errors.forEach(e => {
+      html += `<div>⚠️ ${escapeHtml(e.site_name)}：${escapeHtml(e.message)}</div>`;
+    });
+    html += '</div>';
+  }
+  banners.innerHTML = html;
+
+  banners.querySelectorAll('[data-login-site]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const siteId = btn.dataset.loginSite;
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = '请在弹出的浏览器里登录...';
+      const r = await window.pywebview.api.login(siteId);
+      if (r.ok) {
+        await load();
+      } else if (r.error === 'need_credentials') {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        alert('这个网站需要先填写账号密码。\n\n请点击右上角「设置」，在网站列表中找到它，点「填账号密码」填好后再回来登录。');
+      } else {
+        btn.disabled = false;
+        btn.textContent = '登录未完成，重试';
+      }
+    });
+  });
+}
+
+function sortItems(list) {
+  return [...list].sort((a, b) => {
+    if (!a.end && !b.end) return 0;
+    if (!a.end) return 1;
+    if (!b.end) return -1;
+    return new Date(a.end.replace(' ', 'T')) - new Date(b.end.replace(' ', 'T'));
+  });
+}
+
+function render() {
+  const todo = sortItems(items.filter(x => !x.done));
+  const done = sortItems(items.filter(x => x.done));
+  document.getElementById('cnt-todo').textContent = todo.length;
+  document.getElementById('cnt-done').textContent = done.length;
+
+  const shown = currentTab === 'todo' ? todo : done;
+
+  if (!shown.length) {
+    if (currentTab === 'todo') {
+      content.innerHTML = `
+        <div class="empty">
+          <div class="big">🎉</div>
+          <div class="msg">所有任务都已完成，太棒了！</div>
+          <div style="margin-top:10px;">休息一下吧</div>
+        </div>`;
+    } else {
+      content.innerHTML = `<div class="empty">还没有已完成的任务</div>`;
+    }
+    return;
+  }
+
+  content.innerHTML = '<div class="list">' + shown.map(it => {
+    const ms = remainingMs(it.end);
+    const expired = !it.done && ms !== null && ms <= 0;
+    const urgent = !it.done && ms !== null && ms > 0 && ms < 24 * 3600 * 1000;
+    const cls = it.done ? 'done' : (expired ? 'expired' : (urgent ? 'urgent' : ''));
+    const badge = it.manual
+      ? '<span class="badge manual">手动</span>'
+      : `<span class="badge">${escapeHtml(it.site_name)}</span>`;
+    const courseBadge = it.course ? `<span class="badge">${escapeHtml(it.course)}</span>` : '';
+    const dueText = it.end ? `截止：${escapeHtml(it.end)}` : '无截止时间';
+    const delBtn = it.manual ? `<button class="del" data-del="${escapeHtml(it.uid)}">删除</button>` : '';
+    return `
+      <div class="item ${cls}">
+        <input type="checkbox" ${it.done ? 'checked' : ''} data-uid="${escapeHtml(it.uid)}" />
+        <div class="info">
+          <div class="title">
+            ${badge}${courseBadge}
+            <span class="text">${escapeHtml(it.title)}</span>
+          </div>
+          <div class="meta">${dueText}</div>
+        </div>
+        <div class="days">${it.done ? '已完成' : fmtRemaining(ms)}</div>
+        ${delBtn}
+      </div>
+    `;
+  }).join('') + '</div>';
+
+  content.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const uid = e.target.dataset.uid;
+      const done = e.target.checked;
+      await window.pywebview.api.toggle_done(uid, done);
+      const it = items.find(x => x.uid === uid);
+      if (it) it.done = done;
+      render();
+    });
+  });
+
+  content.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.dataset.del;
+      if (!confirm('确定要删除这条手动任务吗？')) return;
+      const r = await window.pywebview.api.delete_task(uid);
+      if (!r.error) {
+        items = items.filter(x => x.uid !== uid);
+        render();
+      }
+    });
+  });
+}
+
+async function load() {
+  refreshBtn.disabled = true;
+  content.innerHTML = '<div class="empty">正在抓取数据...</div>';
+  banners.innerHTML = '';
+  try {
+    const res = await window.pywebview.api.get_homeworks();
+    if (res.error) {
+      content.innerHTML = `<div class="empty">出错了：${escapeHtml(res.error)}</div>`;
+    } else {
+      items = res.items || [];
+      renderBanners(res.errors || [], res.need_login || []);
+      render();
+    }
+  } catch (e) {
+    content.innerHTML = `<div class="empty">出错了：${escapeHtml(e)}</div>`;
+  }
+  refreshBtn.disabled = false;
+}
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    currentTab = t.dataset.tab;
+    render();
+  });
+});
+
+refreshBtn.addEventListener('click', load);
+
+addBtn.addEventListener('click', () => {
+  document.getElementById('m-title').value = '';
+  document.getElementById('m-course').value = '';
+  document.getElementById('m-due').value = '';
+  document.getElementById('m-url').value = '';
+  modalError.textContent = '';
+  modalBg.classList.add('open');
+  setTimeout(() => document.getElementById('m-title').focus(), 50);
+});
+
+document.getElementById('m-cancel').addEventListener('click', () => {
+  modalBg.classList.remove('open');
+});
+
+modalBg.addEventListener('click', (e) => {
+  if (e.target === modalBg) modalBg.classList.remove('open');
+});
+
+document.getElementById('m-ok').addEventListener('click', async () => {
+  const title = document.getElementById('m-title').value.trim();
+  const course = document.getElementById('m-course').value.trim();
+  const dueRaw = document.getElementById('m-due').value;
+  const url = document.getElementById('m-url').value.trim();
+
+  if (!title) { modalError.textContent = '请填写标题'; return; }
+  if (!dueRaw) { modalError.textContent = '请填写截止时间'; return; }
+
+  const due = dueRaw.replace('T', ' ') + (dueRaw.length === 16 ? ':00' : '');
+  const r = await window.pywebview.api.add_task(title, course, due, url);
+  if (r.error) {
+    modalError.textContent = r.error;
+    return;
+  }
+  modalBg.classList.remove('open');
+});
+
+// ====== 设置面板 ======
+const settingsBg = document.getElementById('settings-bg');
+const applyHint = document.getElementById('apply-hint');
+let sitesFullInfo = [];
+let siteDraft = [];
+let settingsForceRefresh = false;
+
+async function openSettings() {
+  settingsBg.classList.add('open');
+  settingsForceRefresh = false;
+  applyHint.textContent = '';
+  applyHint.className = 'apply-hint';
+  await refreshSitesPanel();
+  await refreshAutostart();
+}
+
+async function refreshSitesPanel() {
+  const list = document.getElementById('site-list');
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">加载中...</div>';
+  const res = await window.pywebview.api.list_sites();
+  sitesFullInfo = res.sites || [];
+  siteDraft = sitesFullInfo.map(s => ({
+    id: s.id,
+    enabled: s.enabled,
+    deleted: false,
+    clear_session: false,
+  }));
+  renderSites();
+  updateApplyHint();
+}
+
+function renderSites() {
+  const list = document.getElementById('site-list');
+  if (!sitesFullInfo.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">还没有配置任何网站</div>';
+    return;
+  }
+  const draftMap = {};
+  siteDraft.forEach(d => { draftMap[d.id] = d; });
+
+  list.innerHTML = sitesFullInfo.map(s => {
+    const d = draftMap[s.id] || {};
+    const enabled = d.enabled;
+    const deleted = d.deleted;
+    const clearing = d.clear_session;
+
+    const rowCls = ['site-row'];
+    if (!enabled) rowCls.push('disabled');
+    if (deleted) rowCls.push('deleted');
+
+    const clearBtnCls = clearing ? 'pending' : '';
+    const clearBtnText = clearing ? '将清除（点撤销）' : '清除登录';
+    const delBtnCls = deleted ? 'pending' : 'danger';
+    const delBtnText = deleted ? '将删除（点撤销）' : '删除';
+
+    let credBadge = '';
+    let credBtn = '';
+    if (s.type === 'tyche') {
+      if (!s.has_credentials) {
+        credBadge = '<span class="cred">未填账号密码</span>';
+      }
+      credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填账号密码</button>`;
+    }
+
+    return `
+    <div class="${rowCls.join(' ')}">
+      <div class="switch ${enabled && !deleted ? 'on' : ''}" data-toggle="${escapeHtml(s.id)}"></div>
+      <div class="name">${escapeHtml(s.name)}</div>
+      <div class="type">${escapeHtml(s.type)}</div>
+      <div class="sess ${s.has_session ? 'ok' : 'no'}">${s.has_session ? '已登录' : '未登录'}</div>
+      ${credBadge}
+      <div class="spacer"></div>
+      ${credBtn}
+      <button class="${clearBtnCls}" data-clear="${escapeHtml(s.id)}">${clearBtnText}</button>
+      <button class="${delBtnCls}" data-del="${escapeHtml(s.id)}">${delBtnText}</button>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-toggle]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.toggle;
+      const it = siteDraft.find(x => x.id === id);
+      if (!it || it.deleted) return;
+      it.enabled = !it.enabled;
+      renderSites();
+      updateApplyHint();
+    });
+  });
+
+  list.querySelectorAll('[data-clear]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.clear;
+      const it = siteDraft.find(x => x.id === id);
+      if (!it || it.deleted) return;
+      it.clear_session = !it.clear_session;
+      renderSites();
+      updateApplyHint();
+    });
+  });
+
+  list.querySelectorAll('[data-del]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.del;
+      const it = siteDraft.find(x => x.id === id);
+      if (!it) return;
+      it.deleted = !it.deleted;
+      if (it.deleted) {
+        it.clear_session = false;
+      }
+      renderSites();
+      updateApplyHint();
+    });
+  });
+
+  list.querySelectorAll('[data-cred]').forEach(el => {
+    el.addEventListener('click', () => {
+      openCredDialog(el.dataset.cred);
+    });
+  });
+}
+
+function updateApplyHint() {
+  const changed = siteDraft.some(d => {
+    const orig = sitesFullInfo.find(s => s.id === d.id);
+    if (!orig) return true;
+    return orig.enabled !== d.enabled || d.deleted || d.clear_session;
+  });
+  if (changed) {
+    applyHint.textContent = '有未应用的改动';
+    applyHint.className = 'apply-hint warn';
+  } else {
+    applyHint.textContent = '';
+    applyHint.className = 'apply-hint';
+  }
+}
+
+document.getElementById('apply-sites-btn').addEventListener('click', async () => {
+  await window.pywebview.api.apply_sites_changes(siteDraft);
+  settingsForceRefresh = true;
+  await refreshSitesPanel();
+  applyHint.textContent = '✓ 已应用';
+  applyHint.className = 'apply-hint ok';
+  setTimeout(() => {
+    if (applyHint.textContent === '✓ 已应用') {
+      applyHint.textContent = '';
+      applyHint.className = 'apply-hint';
+    }
+  }, 2000);
+});
+
+// ====== 凭据编辑 ======
+const credBg = document.getElementById('cred-bg');
+const credError = document.getElementById('cred-error');
+let credSiteId = '';
+
+async function openCredDialog(siteId) {
+  credSiteId = siteId;
+  credError.textContent = '';
+  document.getElementById('cred-user').value = '';
+  document.getElementById('cred-pass').value = '';
+  const r = await window.pywebview.api.get_site_credentials(siteId);
+  if (r && r.ok) {
+    document.getElementById('cred-user').value = r.basic_user || '';
+    document.getElementById('cred-pass').value = r.basic_pass || '';
+  }
+  credBg.classList.add('open');
+  setTimeout(() => document.getElementById('cred-user').focus(), 50);
+}
+
+document.getElementById('cred-cancel').addEventListener('click', () => {
+  credBg.classList.remove('open');
+});
+credBg.addEventListener('click', (e) => {
+  if (e.target === credBg) credBg.classList.remove('open');
+});
+
+document.getElementById('cred-ok').addEventListener('click', async () => {
+  const u = document.getElementById('cred-user').value.trim();
+  const p = document.getElementById('cred-pass').value;
+  if (!u) { credError.textContent = '请填写账号'; return; }
+  if (!p) { credError.textContent = '请填写密码'; return; }
+  const r = await window.pywebview.api.save_site_credentials(credSiteId, u, p);
+  if (r.error) {
+    credError.textContent = r.error;
+    return;
+  }
+  credBg.classList.remove('open');
+  await refreshSitesPanel();
+  settingsForceRefresh = true;
+});
+
+// ====== 开机自启动 ======
+const autostartSwitch = document.getElementById('autostart-switch');
+const autostartStatus = document.getElementById('autostart-status');
+
+async function refreshAutostart() {
+  const r = await window.pywebview.api.get_autostart();
+  if (r && r.enabled) {
+    autostartSwitch.classList.add('on');
+    autostartStatus.textContent = '已开启';
+    autostartStatus.className = 'status on';
+  } else {
+    autostartSwitch.classList.remove('on');
+    autostartStatus.textContent = '未开启';
+    autostartStatus.className = 'status';
+  }
+}
+
+autostartSwitch.addEventListener('click', async () => {
+  const isOn = autostartSwitch.classList.contains('on');
+  const target = !isOn;
+  autostartSwitch.style.pointerEvents = 'none';
+  const r = await window.pywebview.api.set_autostart(target);
+  autostartSwitch.style.pointerEvents = '';
+  if (r && r.error) {
+    alert('设置失败：' + r.error);
+    return;
+  }
+  await refreshAutostart();
+});
+
+// ====== 关闭 ======
+document.getElementById('settings-btn').addEventListener('click', openSettings);
+
+function closeSettings() {
+  settingsBg.classList.remove('open');
+  if (settingsForceRefresh) {
+    settingsForceRefresh = false;
+    load();
+  }
+}
+
+document.getElementById('s-close').addEventListener('click', closeSettings);
+settingsBg.addEventListener('click', (e) => {
+  if (e.target === settingsBg) closeSettings();
+});
+
+// 后端推送
+window.__syncFromCache = function(newItems) {
+  if (!Array.isArray(newItems)) return;
+  items = newItems;
+  render();
+};
+
+window.addEventListener('pywebviewready', load);
+
+setInterval(() => {
+  if (!items.length) return;
+  document.querySelectorAll('.item').forEach(el => {
+    const cb = el.querySelector('input[type=checkbox]');
+    if (!cb) return;
+    const uid = cb.dataset.uid;
+    const it = items.find(x => x.uid === uid);
+    if (!it || it.done) return;
+    const daysEl = el.querySelector('.days');
+    if (daysEl) daysEl.textContent = fmtRemaining(remainingMs(it.end));
+  });
+}, 60 * 1000);
+</script>
+</body>
+</html>

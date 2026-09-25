@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>面板</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; }
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #ffffff;
+  color: #2c3e50;
+  overflow: hidden;
+}
+.header {
+  padding: 12px 14px;
+  background: #f0f3f6;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #e1e6ee;
+  user-select: none;
+}
+.header .left { display: flex; align-items: center; gap: 6px; }
+.header button {
+  font-size: 11px;
+  padding: 3px 9px;
+  background: #dde4ea;
+  color: #54626f;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.header button:hover { background: #cdd6de; }
+#body { padding: 8px 12px 10px; }
+.item {
+  font-size: 12px;
+  margin-bottom: 5px;
+  line-height: 1.35;
+  padding-left: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #3a4a4a;
+}
+.item input[type=checkbox] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #4a69bd;
+}
+.item .title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item .due {
+  color: #95a5a6;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.more {
+  font-size: 11px;
+  color: #95a5a6;
+  margin-top: 4px;
+  padding-left: 26px;
+}
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="left">📋 未完成 <span id="count"></span></span>
+  <button id="toggle-main-btn" onclick="onToggleMain(event)">打开</button>
+</div>
+<div id="body">
+  <div id="list"></div>
+</div>
+<script>
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function update(items) {
+  const list = document.getElementById('list');
+  const cnt = document.getElementById('count');
+  cnt.textContent = items ? `(${items.length})` : '';
+  if (!items || !items.length) { list.innerHTML = ''; return; }
+
+  let html = '';
+  items.slice(0, 12).forEach(it => {
+    const due = it.end ? `<span class="due">${escapeHtml(it.end)}</span>` : '';
+    html += `
+      <div class="item">
+        <input type="checkbox" data-uid="${escapeHtml(it.uid)}" />
+        <span class="title">${escapeHtml(it.title)}</span>
+        ${due}
+      </div>`;
+  });
+  if (items.length > 12) {
+    html += `<div class="more">...还有 ${items.length - 12} 条</div>`;
+  }
+  list.innerHTML = html;
+
+  list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      e.stopPropagation();
+      const uid = cb.dataset.uid;
+      cb.disabled = true;
+      try {
+        await window.pywebview.api.toggle_done(uid, true);
+      } catch (err) {}
+    });
+  });
+}
+
+let mainVisible = false;
+
+async function refreshMainVisible() {
+  try {
+    const r = await window.pywebview.api.is_main_visible();
+    mainVisible = !!(r && r.visible);
+  } catch (e) {
+    mainVisible = false;
+  }
+  const btn = document.getElementById('toggle-main-btn');
+  btn.textContent = mainVisible ? '关闭' : '打开';
+}
+
+async function onToggleMain(e) {
+  if (e) e.stopPropagation();
+  try {
+    if (mainVisible) {
+      await window.pywebview.api.hide_main();
+    } else {
+      await window.pywebview.api.show_main();
+    }
+  } catch (err) {}
+  setTimeout(refreshMainVisible, 80);
+}
+
+window.__updateNormal = update;
+
+window.addEventListener('pywebviewready', async () => {
+  window.pywebview.api.panel_ready();
+  await refreshMainVisible();
+  setInterval(refreshMainVisible, 1000);
+});
+</script>
+</body>
+</html>
