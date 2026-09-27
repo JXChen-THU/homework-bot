@@ -4,13 +4,17 @@
 <meta charset="UTF-8">
 <title>任务清单</title>
 <style>
+/* ========== 全局重置 ========== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
 body {
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   background: #f5f6fa;
   color: #2c3e50;
   padding: 24px;
 }
+
+/* ========== 顶部栏 ========== */
 header {
   display: flex;
   align-items: center;
@@ -19,6 +23,8 @@ header {
 }
 h1 { font-size: 22px; font-weight: 600; }
 .actions { display: flex; gap: 8px; }
+
+/* 右上角三个按钮共用样式 */
 .actions button {
   padding: 8px 18px;
   border: none;
@@ -31,21 +37,23 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-#add-btn      { background: #A8BBA2; }
+/* 三个按钮各自的莫兰迪色 */
+#add-btn      { background: #A8BBA2; }   /* 灰绿 */
 #add-btn:hover { background: #97AB91; }
-#refresh-btn  { background: #A1B2BD; }
+#refresh-btn  { background: #A1B2BD; }   /* 灰蓝 */
 #refresh-btn:hover { background: #90A2AD; }
-#settings-btn { background: #C1A9B0; }
+#settings-btn { background: #C1A9B0; }   /* 灰粉 */
 #settings-btn:hover { background: #B199A0; }
 
+/* ========== 顶部提示条（登录提醒/错误信息） ========== */
 .banner {
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 12px;
   font-size: 14px;
 }
-.banner.warn { background: #fff8e6; color: #8a6d3b; border: 1px solid #ffe58f; }
-.banner.err { background: #fdecea; color: #a94442; border: 1px solid #f5c6cb; }
+.banner.warn { background: #fff8e6; color: #8a6d3b; border: 1px solid #ffe58f; }  /* 黄色警告 */
+.banner.err  { background: #fdecea; color: #a94442; border: 1px solid #f5c6cb; }  /* 红色错误 */
 .banner button {
   margin-top: 8px;
   padding: 6px 14px;
@@ -58,9 +66,8 @@ h1 { font-size: 22px; font-weight: 600; }
   margin-right: 8px;
 }
 .banner button:hover { background: #3c58a8; }
-.banner button.secondary { background: #8a6d3b; }
-.banner button.secondary:hover { background: #6f562f; }
 
+/* ========== 未完成/已完成 标签页 ========== */
 .tabs {
   display: flex;
   gap: 4px;
@@ -75,12 +82,12 @@ h1 { font-size: 22px; font-weight: 600; }
   color: #7f8c8d;
   border: none;
   background: none;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
+  border-bottom: 3px solid transparent;  /* 未选中时下划线透明 */
+  margin-bottom: -2px;                    /* 让下划线和父元素边框重合 */
   transition: all 0.15s;
 }
 .tab:hover { color: #4a69bd; }
-.tab.active { color: #4a69bd; border-bottom-color: #4a69bd; }
+.tab.active { color: #4a69bd; border-bottom-color: #4a69bd; }  /* 选中：蓝色下划线 */
 .tab .count {
   display: inline-block;
   background: #eef1f7;
@@ -92,35 +99,40 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 .tab.active .count { background: #4a69bd; color: white; }
 
+/* ========== 任务列表 ========== */
 .list { display: flex; flex-direction: column; gap: 8px; }
 
+/* 单条任务卡片 */
 .item {
   display: flex;
   align-items: center;
   padding: 14px 18px;
   background: white;
   border-radius: 8px;
-  border-left: 4px solid #4a69bd;
+  border-left: 4px solid #4a69bd;  /* 左侧色条：蓝色=普通 */
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   transition: all 0.2s;
 }
-.item.urgent { border-left-color: #e74c3c; background: #fff5f5; }
-.item.expired { border-left-color: #c0392b; background: #fdecea; }
-.item.done {
+.item.urgent  { border-left-color: #e74c3c; background: #fff5f5; }  /* 红=24h内 */
+.item.expired { border-left-color: #c0392b; background: #fdecea; }  /* 深红=已过期 */
+.item.done {                                                        /* 已完成=变淡 */
   opacity: 0.55;
   border-left-color: #bdc3c7;
   background: #fafafa;
 }
 .item.done .title .text { text-decoration: line-through; }
 
+/* 勾选框 */
 .item input[type=checkbox] {
-  width: 20px; height: 20px;
+  width: 20px;
+  height: 20px;
   margin-right: 14px;
   cursor: pointer;
-  flex-shrink: 0;
+  flex-shrink: 0;  /* 别被挤压 */
 }
 
-.info { flex: 1; min-width: 0; }
+/* 中间信息区 */
+.info { flex: 1; min-width: 0; }  /* min-width:0 让子元素能被省略号截断 */
 .title {
   font-size: 15px;
   font-weight: 500;
@@ -132,8 +144,10 @@ h1 { font-size: 22px; font-weight: 600; }
 .title .text {
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: ellipsis;  /* 太长显示省略号 */
 }
+
+/* 站点/课程标签 */
 .badge {
   display: inline-block;
   font-size: 11px;
@@ -144,11 +158,13 @@ h1 { font-size: 22px; font-weight: 600; }
   font-weight: 500;
   flex-shrink: 0;
 }
-.badge.manual { background: #fef3e2; color: #d68910; }
+.badge.manual { background: #fef3e2; color: #d68910; }  /* 手动任务的橙色标签 */
+
 .meta { font-size: 13px; color: #7f8c8d; }
-.item.urgent .meta { color: #c0392b; font-weight: 500; }
+.item.urgent .meta  { color: #c0392b; font-weight: 500; }
 .item.expired .meta { color: #c0392b; }
 
+/* 右侧倒计时 */
 .days {
   font-size: 13px;
   font-weight: 500;
@@ -157,10 +173,11 @@ h1 { font-size: 22px; font-weight: 600; }
   flex-shrink: 0;
   text-align: right;
 }
-.item.urgent .days { color: #e74c3c; }
+.item.urgent .days  { color: #e74c3c; }
 .item.expired .days { color: #c0392b; }
-.item.done .days { color: #bdc3c7; }
+.item.done .days    { color: #bdc3c7; }
 
+/* 删除按钮（仅手动任务有，鼠标悬停才显示） */
 .del {
   margin-left: 10px;
   padding: 2px 8px;
@@ -170,12 +187,13 @@ h1 { font-size: 22px; font-weight: 600; }
   color: #95a5a6;
   border-radius: 4px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0;  /* 默认透明 */
   transition: opacity 0.15s;
 }
-.item:hover .del { opacity: 1; }
+.item:hover .del { opacity: 1; }  /* 悬停才显示 */
 .del:hover { background: #fdecea; color: #c0392b; }
 
+/* ========== 空状态提示 ========== */
 .empty {
   padding: 60px 20px;
   text-align: center;
@@ -185,15 +203,18 @@ h1 { font-size: 22px; font-weight: 600; }
 .empty .big { font-size: 48px; margin-bottom: 16px; }
 .empty .msg { color: #27ae60; font-weight: 500; font-size: 17px; }
 
+/* ========== 弹窗（通用） ========== */
 .modal-bg {
-  position: fixed; inset: 0;
+  position: fixed;       /* 固定定位，脱离文档流 */
+  inset: 0;              /* 四边都是 0，占满全屏 */
   background: rgba(0,0,0,0.4);
-  display: none;
+  display: none;         /* 默认隐藏 */
   align-items: center;
   justify-content: center;
   z-index: 100;
 }
-.modal-bg.open { display: flex; }
+.modal-bg.open { display: flex; }  /* 加 open 类就显示 */
+
 .modal {
   background: white;
   border-radius: 10px;
@@ -202,9 +223,11 @@ h1 { font-size: 22px; font-weight: 600; }
   max-width: 90vw;
   box-shadow: 0 10px 40px rgba(0,0,0,0.2);
   max-height: 80vh;
-  overflow-y: auto;
+  overflow-y: auto;  /* 内容太长可滚动 */
 }
 .modal h2 { font-size: 18px; margin-bottom: 18px; }
+
+/* 表单字段 */
 .field { margin-bottom: 14px; }
 .field label {
   display: block;
@@ -227,8 +250,10 @@ h1 { font-size: 22px; font-weight: 600; }
   color: #c0392b;
   font-size: 13px;
   margin-bottom: 10px;
-  min-height: 18px;
+  min-height: 18px;  /* 占位，避免显示时抖动 */
 }
+
+/* 弹窗底部按钮 */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -246,10 +271,8 @@ h1 { font-size: 22px; font-weight: 600; }
 .modal-actions .ok { background: #4a69bd; color: white; }
 .modal-actions .ok:hover { background: #3c58a8; }
 
-.section {
-  padding: 16px 0;
-  border-bottom: 1px solid #eef1f7;
-}
+/* ========== 设置面板里的分区 ========== */
+.section { padding: 16px 0; border-bottom: 1px solid #eef1f7; }
 .section:last-of-type { border-bottom: none; }
 .section h3 {
   font-size: 14px;
@@ -279,13 +302,13 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 .section-actions button:hover { background: #3c58a8; }
 .section-actions button:disabled { background: #bdc3c7; cursor: not-allowed; }
-.apply-hint {
-  font-size: 12px;
-  color: #95a5a6;
-}
-.apply-hint.ok { color: #27ae60; }
-.apply-hint.warn { color: #d68910; }
 
+/* "有未应用的改动"提示文字 */
+.apply-hint { font-size: 12px; color: #95a5a6; }
+.apply-hint.ok   { color: #27ae60; }  /* 绿色：已应用 */
+.apply-hint.warn { color: #d68910; }  /* 橙色：有改动 */
+
+/* ========== 设置面板里每一行站点 ========== */
 .site-row {
   display: flex;
   align-items: center;
@@ -297,16 +320,9 @@ h1 { font-size: 22px; font-weight: 600; }
   transition: all 0.15s;
   flex-wrap: wrap;
 }
-.site-row.disabled { opacity: 0.55; }
-.site-row.deleted {
-  background: #fdecea;
-  border-color: #f5c6cb;
-  opacity: 0.7;
-}
-.site-row.deleted .name {
-  text-decoration: line-through;
-  color: #c0392b;
-}
+.site-row.disabled { opacity: 0.55; }                              /* 已禁用 */
+.site-row.deleted  { background: #fdecea; border-color: #f5c6cb; opacity: 0.7; }  /* 待删除 */
+.site-row.deleted .name { text-decoration: line-through; color: #c0392b; }
 .site-row .name { font-size: 14px; font-weight: 500; }
 .site-row .type {
   font-size: 11px;
@@ -315,13 +331,9 @@ h1 { font-size: 22px; font-weight: 600; }
   background: #eef1f7;
   color: #4a69bd;
 }
-.site-row .sess {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.site-row .sess.ok { background: #e8f5e9; color: #2e7d32; }
-.site-row .sess.no { background: #fdecea; color: #c0392b; }
+.site-row .sess { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.site-row .sess.ok { background: #e8f5e9; color: #2e7d32; }  /* 绿：已登录 */
+.site-row .sess.no { background: #fdecea; color: #c0392b; }  /* 红：未登录 */
 .site-row .cred {
   font-size: 11px;
   padding: 2px 8px;
@@ -329,7 +341,7 @@ h1 { font-size: 22px; font-weight: 600; }
   background: #fff3cd;
   color: #8a6d3b;
 }
-.site-row .spacer { flex: 1; }
+.site-row .spacer { flex: 1; }  /* 弹性空白，把右侧按钮推到最右 */
 .site-row button {
   padding: 5px 12px;
   font-size: 12px;
@@ -342,19 +354,20 @@ h1 { font-size: 22px; font-weight: 600; }
 .site-row button:hover { background: #f5f6fa; }
 .site-row button.danger { color: #c0392b; border-color: #f5c6cb; }
 .site-row button.danger:hover { background: #fdecea; }
-.site-row button.pending {
+.site-row button.pending {  /* 待应用状态（黄色） */
   background: #fff3cd;
   color: #8a6d3b;
   border-color: #ffe58f;
 }
 .site-row button.pending:hover { background: #ffe9a8; }
-.site-row button.cred-btn {
+.site-row button.cred-btn {  /* 填账号密码按钮 */
   color: #8a6d3b;
   border-color: #ffe58f;
   background: #fff8e6;
 }
 .site-row button.cred-btn:hover { background: #ffe9a8; }
 
+/* ========== 开关（仿 iOS 的滑动开关） ========== */
 .switch {
   position: relative;
   width: 38px;
@@ -365,8 +378,8 @@ h1 { font-size: 22px; font-weight: 600; }
   transition: background 0.2s;
   flex-shrink: 0;
 }
-.switch.on { background: #4a69bd; }
-.switch::after {
+.switch.on { background: #4a69bd; }  /* 开=蓝 */
+.switch::after {  /* 用伪元素画圆点 */
   content: "";
   position: absolute;
   top: 2px;
@@ -377,8 +390,9 @@ h1 { font-size: 22px; font-weight: 600; }
   border-radius: 50%;
   transition: left 0.2s;
 }
-.switch.on::after { left: 20px; }
+.switch.on::after { left: 20px; }  /* 开=右移 */
 
+/* ========== 开机自启动那一行 ========== */
 .auto-row {
   display: flex;
   align-items: center;
@@ -388,26 +402,15 @@ h1 { font-size: 22px; font-weight: 600; }
   border-radius: 8px;
   background: #fafbfc;
 }
-.auto-row .label {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 500;
-}
-.auto-row .status {
-  font-size: 12px;
-  color: #95a5a6;
-}
+.auto-row .label { flex: 1; font-size: 14px; font-weight: 500; }
+.auto-row .status { font-size: 12px; color: #95a5a6; }
 .auto-row .status.on { color: #27ae60; font-weight: 500; }
-.auto-hint {
-  font-size: 12px;
-  color: #95a5a6;
-  margin-top: 8px;
-  padding-left: 2px;
-}
+.auto-hint { font-size: 12px; color: #95a5a6; margin-top: 8px; padding-left: 2px; }
 </style>
 </head>
 <body>
 
+<!-- ========== 顶部栏 ========== -->
 <header>
   <h1>📋 任务</h1>
   <div class="actions">
@@ -417,15 +420,19 @@ h1 { font-size: 22px; font-weight: 600; }
   </div>
 </header>
 
+<!-- 提示条容器（登录提醒/错误信息，JS 动态填充） -->
 <div id="banners"></div>
 
+<!-- 未完成 / 已完成 标签页 -->
 <div class="tabs">
   <button class="tab active" data-tab="todo">未完成 <span class="count" id="cnt-todo">0</span></button>
   <button class="tab" data-tab="done">已完成 <span class="count" id="cnt-done">0</span></button>
 </div>
 
+<!-- 任务列表容器（JS 动态填充） -->
 <div id="content"></div>
 
+<!-- ========== 弹窗 1：添加任务 ========== -->
 <div class="modal-bg" id="modal-bg">
   <div class="modal">
     <h2>添加任务</h2>
@@ -445,7 +452,7 @@ h1 { font-size: 22px; font-weight: 600; }
     </div>
     <div class="field">
       <label>链接</label>
-      <input id="m-url" placeholder="可选，例如作业页面网址" />
+      <input id="m-url" placeholder="可选" />
     </div>
     <div class="modal-actions">
       <button class="cancel" id="m-cancel">取消</button>
@@ -454,10 +461,12 @@ h1 { font-size: 22px; font-weight: 600; }
   </div>
 </div>
 
+<!-- ========== 弹窗 2：设置 ========== -->
 <div class="modal-bg" id="settings-bg">
   <div class="modal" style="width: 660px;">
     <h2>设置</h2>
 
+    <!-- 区块 1：网站管理 -->
     <div class="section">
       <h3>🌐 网站设置</h3>
       <div id="site-list"></div>
@@ -467,6 +476,7 @@ h1 { font-size: 22px; font-weight: 600; }
       </div>
     </div>
 
+    <!-- 区块 2：开机自启动 -->
     <div class="section">
       <h3>🚀 开机自启动</h3>
       <div class="auto-row">
@@ -474,7 +484,7 @@ h1 { font-size: 22px; font-weight: 600; }
         <div class="label">开机自动启动任务清单</div>
         <div class="status" id="autostart-status">未开启</div>
       </div>
-      <div class="auto-hint">开启后，每次开机并联网后自动启动，主窗口在右下角、浮窗在右上角。</div>
+      <div class="auto-hint">开启后，每次开机并联网后自动启动。</div>
     </div>
 
     <div class="modal-actions">
@@ -483,13 +493,13 @@ h1 { font-size: 22px; font-weight: 600; }
   </div>
 </div>
 
+<!-- ========== 弹窗 3：填账号密码（Tyche 用） ========== -->
 <div class="modal-bg" id="cred-bg">
   <div class="modal">
     <h2>填写账号密码</h2>
     <div class="error" id="cred-error"></div>
     <div style="font-size:13px;color:#7f8c8d;margin-bottom:14px;">
-      这是打开 Tyche 网站时浏览器弹出的第一个登录框，
-      <b>不是网站内部的账号密码</b>。请先填写，再回主界面点"登录"。
+      这是打开 Tyche 网站时浏览器弹出的第一个登录框，不是网站内部的账号密码。
     </div>
     <div class="field">
       <label>账号</label>
@@ -507,29 +517,43 @@ h1 { font-size: 22px; font-weight: 600; }
 </div>
 
 <script>
+// ============================================================
+// 工具函数
+// ============================================================
+
+// 把字符串里的 < > & " ' 转义，防止 XSS 或布局被破坏
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 }
 
+// 常用 DOM 元素缓存（避免每次重新查询）
 const content = document.getElementById('content');
 const banners = document.getElementById('banners');
 const refreshBtn = document.getElementById('refresh-btn');
 const addBtn = document.getElementById('add-btn');
 const modalBg = document.getElementById('modal-bg');
 const modalError = document.getElementById('modal-error');
-let items = [];
-let currentTab = 'todo';
 
+// 全局状态
+let items = [];             // 所有任务
+let currentTab = 'todo';    // 当前显示的标签（todo / done）
+
+// ============================================================
+// 时间计算
+// ============================================================
+
+// 计算距离截止还剩多少毫秒（已过期为负数）
 function remainingMs(dateStr) {
   if (!dateStr) return null;
   const now = new Date();
-  const due = new Date(dateStr.replace(' ', 'T'));
+  const due = new Date(dateStr.replace(' ', 'T'));  // "2026-10-09 23:59" 转 ISO 格式
   if (isNaN(due)) return null;
   return due - now;
 }
 
+// 把毫秒格式化成"还剩 X 天 Y 小时"或"还剩 X.X 小时"
 function fmtRemaining(ms) {
   if (ms === null) return '';
   if (ms <= 0) return '已过期';
@@ -540,18 +564,23 @@ function fmtRemaining(ms) {
   return '还剩 ' + d + ' 天 ' + rh + ' 小时';
 }
 
+// ============================================================
+// 顶部提示条（登录提醒、抓取错误）
+// ============================================================
 function renderBanners(errors, needLogin) {
   let html = '';
+
+  // 需要登录的站点 → 黄色提示 + 登录按钮
   if (needLogin && needLogin.length) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
     needLogin.forEach(s => {
-      const credWarn = s.need_credentials
-        ? '（需先填写账号密码）'
-        : '';
+      const credWarn = s.need_credentials ? '（需先填写账号密码）' : '';
       html += `<button data-login-site="${escapeHtml(s.site_id)}">登录 ${escapeHtml(s.site_name)}${credWarn}</button>`;
     });
     html += '</div>';
   }
+
+  // 抓取错误 → 红色提示
   if (errors && errors.length) {
     html += '<div class="banner err">';
     errors.forEach(e => {
@@ -559,17 +588,22 @@ function renderBanners(errors, needLogin) {
     });
     html += '</div>';
   }
+
   banners.innerHTML = html;
 
+  // 给每个"登录"按钮绑定点击事件
   banners.querySelectorAll('[data-login-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const siteId = btn.dataset.loginSite;
       btn.disabled = true;
       const originalText = btn.textContent;
       btn.textContent = '请在弹出的浏览器里登录...';
+
+      // 调 Python 的 login 方法
       const r = await window.pywebview.api.login(siteId);
+
       if (r.ok) {
-        await load();
+        await load();  // 登录成功，刷新
       } else if (r.error === 'need_credentials') {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -582,30 +616,40 @@ function renderBanners(errors, needLogin) {
   });
 }
 
+// ============================================================
+// 任务排序：按截止时间升序
+// ============================================================
 function sortItems(list) {
   return [...list].sort((a, b) => {
     if (!a.end && !b.end) return 0;
-    if (!a.end) return 1;
+    if (!a.end) return 1;    // 没有截止时间的排最后
     if (!b.end) return -1;
     return new Date(a.end.replace(' ', 'T')) - new Date(b.end.replace(' ', 'T'));
   });
 }
 
+// ============================================================
+// 主列表渲染
+// ============================================================
 function render() {
+  // 分成"未完成"和"已完成"两组
   const todo = sortItems(items.filter(x => !x.done));
   const done = sortItems(items.filter(x => x.done));
+
+  // 更新标签页上的数字
   document.getElementById('cnt-todo').textContent = todo.length;
   document.getElementById('cnt-done').textContent = done.length;
 
+  // 根据当前选中的标签决定显示哪一组
   const shown = currentTab === 'todo' ? todo : done;
 
+  // 空状态
   if (!shown.length) {
     if (currentTab === 'todo') {
       content.innerHTML = `
         <div class="empty">
           <div class="big">🎉</div>
           <div class="msg">所有任务都已完成，太棒了！</div>
-          <div style="margin-top:10px;">休息一下吧</div>
         </div>`;
     } else {
       content.innerHTML = `<div class="empty">还没有已完成的任务</div>`;
@@ -613,17 +657,24 @@ function render() {
     return;
   }
 
+  // 渲染每一条任务
   content.innerHTML = '<div class="list">' + shown.map(it => {
     const ms = remainingMs(it.end);
-    const expired = !it.done && ms !== null && ms <= 0;
-    const urgent = !it.done && ms !== null && ms > 0 && ms < 24 * 3600 * 1000;
+    const expired = !it.done && ms !== null && ms <= 0;                        // 已过期
+    const urgent  = !it.done && ms !== null && ms > 0 && ms < 24*3600*1000;    // 24h 内
+
+    // 根据状态给卡片加不同的 class
     const cls = it.done ? 'done' : (expired ? 'expired' : (urgent ? 'urgent' : ''));
+
+    // 站点标签 or 手动标签
     const badge = it.manual
       ? '<span class="badge manual">手动</span>'
       : `<span class="badge">${escapeHtml(it.site_name)}</span>`;
+
     const courseBadge = it.course ? `<span class="badge">${escapeHtml(it.course)}</span>` : '';
     const dueText = it.end ? `截止：${escapeHtml(it.end)}` : '无截止时间';
     const delBtn = it.manual ? `<button class="del" data-del="${escapeHtml(it.uid)}">删除</button>` : '';
+
     return `
       <div class="item ${cls}">
         <input type="checkbox" ${it.done ? 'checked' : ''} data-uid="${escapeHtml(it.uid)}" />
@@ -640,17 +691,21 @@ function render() {
     `;
   }).join('') + '</div>';
 
+  // 给每个勾选框绑定事件
   content.querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.addEventListener('change', async (e) => {
       const uid = e.target.dataset.uid;
       const done = e.target.checked;
-      await window.pywebview.api.toggle_done(uid, done);
+      await window.pywebview.api.toggle_done(uid, done);  // 通知 Python 存到数据库
+
+      // 本地也更新，避免重新拉数据
       const it = items.find(x => x.uid === uid);
       if (it) it.done = done;
       render();
     });
   });
 
+  // 给每个删除按钮绑定事件
   content.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const uid = btn.dataset.del;
@@ -664,25 +719,31 @@ function render() {
   });
 }
 
+// ============================================================
+// 刷新数据（向 Python 请求最新任务列表）
+// ============================================================
 async function load() {
   refreshBtn.disabled = true;
-  content.innerHTML = '<div class="empty">正在抓取数据...</div>';
-  banners.innerHTML = '';
+
   try {
     const res = await window.pywebview.api.get_homeworks();
     if (res.error) {
-      content.innerHTML = `<div class="empty">出错了：${escapeHtml(res.error)}</div>`;
+      banners.innerHTML = `<div class="banner err">抓取失败：${escapeHtml(res.error)}</div>`;
     } else {
       items = res.items || [];
       renderBanners(res.errors || [], res.need_login || []);
       render();
     }
   } catch (e) {
-    content.innerHTML = `<div class="empty">出错了：${escapeHtml(e)}</div>`;
+    banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
+  } finally {
+    refreshBtn.disabled = false;
   }
-  refreshBtn.disabled = false;
 }
 
+// ============================================================
+// 标签页切换
+// ============================================================
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -694,24 +755,32 @@ document.querySelectorAll('.tab').forEach(t => {
 
 refreshBtn.addEventListener('click', load);
 
+// ============================================================
+// 添加任务弹窗
+// ============================================================
 addBtn.addEventListener('click', () => {
+  // 清空表单
   document.getElementById('m-title').value = '';
   document.getElementById('m-course').value = '';
   document.getElementById('m-due').value = '';
   document.getElementById('m-url').value = '';
   modalError.textContent = '';
+  // 打开弹窗
   modalBg.classList.add('open');
   setTimeout(() => document.getElementById('m-title').focus(), 50);
 });
 
+// 取消按钮 → 关闭
 document.getElementById('m-cancel').addEventListener('click', () => {
   modalBg.classList.remove('open');
 });
 
+// 点遮罩层 → 关闭
 modalBg.addEventListener('click', (e) => {
   if (e.target === modalBg) modalBg.classList.remove('open');
 });
 
+// 确认按钮 → 提交
 document.getElementById('m-ok').addEventListener('click', async () => {
   const title = document.getElementById('m-title').value.trim();
   const course = document.getElementById('m-course').value.trim();
@@ -721,7 +790,9 @@ document.getElementById('m-ok').addEventListener('click', async () => {
   if (!title) { modalError.textContent = '请填写标题'; return; }
   if (!dueRaw) { modalError.textContent = '请填写截止时间'; return; }
 
+  // datetime-local 的值形如 "2026-10-09T23:59"，转换成 "2026-10-09 23:59:00"
   const due = dueRaw.replace('T', ' ') + (dueRaw.length === 16 ? ':00' : '');
+
   const r = await window.pywebview.api.add_task(title, course, due, url);
   if (r.error) {
     modalError.textContent = r.error;
@@ -730,12 +801,14 @@ document.getElementById('m-ok').addEventListener('click', async () => {
   modalBg.classList.remove('open');
 });
 
-// ====== 设置面板 ======
+// ============================================================
+// 设置面板：网站管理
+// ============================================================
 const settingsBg = document.getElementById('settings-bg');
 const applyHint = document.getElementById('apply-hint');
-let sitesFullInfo = [];
-let siteDraft = [];
-let settingsForceRefresh = false;
+let sitesFullInfo = [];   // 后端返回的站点信息（原始状态）
+let siteDraft = [];       // 用户的草稿改动
+let settingsForceRefresh = false;  // 关闭设置后是否需要刷新主界面
 
 async function openSettings() {
   settingsBg.classList.add('open');
@@ -751,11 +824,9 @@ async function refreshSitesPanel() {
   list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">加载中...</div>';
   const res = await window.pywebview.api.list_sites();
   sitesFullInfo = res.sites || [];
+  // 初始化草稿：跟后端状态一样
   siteDraft = sitesFullInfo.map(s => ({
-    id: s.id,
-    enabled: s.enabled,
-    deleted: false,
-    clear_session: false,
+    id: s.id, enabled: s.enabled, deleted: false, clear_session: false,
   }));
   renderSites();
   updateApplyHint();
@@ -767,6 +838,8 @@ function renderSites() {
     list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">还没有配置任何网站</div>';
     return;
   }
+
+  // 把草稿转成 {id: draft} 的映射方便查
   const draftMap = {};
   siteDraft.forEach(d => { draftMap[d.id] = d; });
 
@@ -780,17 +853,17 @@ function renderSites() {
     if (!enabled) rowCls.push('disabled');
     if (deleted) rowCls.push('deleted');
 
+    // 按钮文字随草稿状态变化
     const clearBtnCls = clearing ? 'pending' : '';
     const clearBtnText = clearing ? '将清除（点撤销）' : '清除登录';
     const delBtnCls = deleted ? 'pending' : 'danger';
     const delBtnText = deleted ? '将删除（点撤销）' : '删除';
 
+    // Tyche 独有：填账号密码按钮
     let credBadge = '';
     let credBtn = '';
     if (s.type === 'tyche') {
-      if (!s.has_credentials) {
-        credBadge = '<span class="cred">未填账号密码</span>';
-      }
+      if (!s.has_credentials) credBadge = '<span class="cred">未填账号密码</span>';
       credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填账号密码</button>`;
     }
 
@@ -808,49 +881,44 @@ function renderSites() {
     </div>`;
   }).join('');
 
+  // 开关：切换启用状态
   list.querySelectorAll('[data-toggle]').forEach(el => {
     el.addEventListener('click', () => {
-      const id = el.dataset.toggle;
-      const it = siteDraft.find(x => x.id === id);
+      const it = siteDraft.find(x => x.id === el.dataset.toggle);
       if (!it || it.deleted) return;
       it.enabled = !it.enabled;
-      renderSites();
-      updateApplyHint();
+      renderSites(); updateApplyHint();
     });
   });
 
+  // 清除登录：切换"待清除"状态
   list.querySelectorAll('[data-clear]').forEach(el => {
     el.addEventListener('click', () => {
-      const id = el.dataset.clear;
-      const it = siteDraft.find(x => x.id === id);
+      const it = siteDraft.find(x => x.id === el.dataset.clear);
       if (!it || it.deleted) return;
       it.clear_session = !it.clear_session;
-      renderSites();
-      updateApplyHint();
+      renderSites(); updateApplyHint();
     });
   });
 
+  // 删除：切换"待删除"状态
   list.querySelectorAll('[data-del]').forEach(el => {
     el.addEventListener('click', () => {
-      const id = el.dataset.del;
-      const it = siteDraft.find(x => x.id === id);
+      const it = siteDraft.find(x => x.id === el.dataset.del);
       if (!it) return;
       it.deleted = !it.deleted;
-      if (it.deleted) {
-        it.clear_session = false;
-      }
-      renderSites();
-      updateApplyHint();
+      if (it.deleted) it.clear_session = false;  // 删除时不需要单独清登录
+      renderSites(); updateApplyHint();
     });
   });
 
+  // 填账号密码
   list.querySelectorAll('[data-cred]').forEach(el => {
-    el.addEventListener('click', () => {
-      openCredDialog(el.dataset.cred);
-    });
+    el.addEventListener('click', () => openCredDialog(el.dataset.cred));
   });
 }
 
+// 对比草稿和后端状态，看有没有改动
 function updateApplyHint() {
   const changed = siteDraft.some(d => {
     const orig = sitesFullInfo.find(s => s.id === d.id);
@@ -866,6 +934,7 @@ function updateApplyHint() {
   }
 }
 
+// 点"应用"：把草稿提交给后端
 document.getElementById('apply-sites-btn').addEventListener('click', async () => {
   await window.pywebview.api.apply_sites_changes(siteDraft);
   settingsForceRefresh = true;
@@ -880,7 +949,9 @@ document.getElementById('apply-sites-btn').addEventListener('click', async () =>
   }, 2000);
 });
 
-// ====== 凭据编辑 ======
+// ============================================================
+// 凭据编辑弹窗（Tyche 的 Basic Auth）
+// ============================================================
 const credBg = document.getElementById('cred-bg');
 const credError = document.getElementById('cred-error');
 let credSiteId = '';
@@ -890,6 +961,7 @@ async function openCredDialog(siteId) {
   credError.textContent = '';
   document.getElementById('cred-user').value = '';
   document.getElementById('cred-pass').value = '';
+  // 从后端读现有值
   const r = await window.pywebview.api.get_site_credentials(siteId);
   if (r && r.ok) {
     document.getElementById('cred-user').value = r.basic_user || '';
@@ -921,7 +993,9 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
   settingsForceRefresh = true;
 });
 
-// ====== 开机自启动 ======
+// ============================================================
+// 开机自启动开关
+// ============================================================
 const autostartSwitch = document.getElementById('autostart-switch');
 const autostartStatus = document.getElementById('autostart-status');
 
@@ -941,7 +1015,7 @@ async function refreshAutostart() {
 autostartSwitch.addEventListener('click', async () => {
   const isOn = autostartSwitch.classList.contains('on');
   const target = !isOn;
-  autostartSwitch.style.pointerEvents = 'none';
+  autostartSwitch.style.pointerEvents = 'none';  // 防止重复点击
   const r = await window.pywebview.api.set_autostart(target);
   autostartSwitch.style.pointerEvents = '';
   if (r && r.error) {
@@ -951,11 +1025,14 @@ autostartSwitch.addEventListener('click', async () => {
   await refreshAutostart();
 });
 
-// ====== 关闭 ======
+// ============================================================
+// 设置面板的打开/关闭
+// ============================================================
 document.getElementById('settings-btn').addEventListener('click', openSettings);
 
 function closeSettings() {
   settingsBg.classList.remove('open');
+  // 只有改动过才刷新主界面（避免无意义的重新抓取）
   if (settingsForceRefresh) {
     settingsForceRefresh = false;
     load();
@@ -967,22 +1044,27 @@ settingsBg.addEventListener('click', (e) => {
   if (e.target === settingsBg) closeSettings();
 });
 
-// 后端推送
+// ============================================================
+// 与 Python 的双向通讯
+// ============================================================
+
+// Python 调这个函数，把最新任务列表推过来（用于浮窗勾选后同步）
 window.__syncFromCache = function(newItems) {
   if (!Array.isArray(newItems)) return;
   items = newItems;
   render();
 };
 
+// 页面加载完 → 向后端要数据
 window.addEventListener('pywebviewready', load);
 
+// 每分钟只更新倒计时文字，不重绘整个列表（避免打断滚动）
 setInterval(() => {
   if (!items.length) return;
   document.querySelectorAll('.item').forEach(el => {
     const cb = el.querySelector('input[type=checkbox]');
     if (!cb) return;
-    const uid = cb.dataset.uid;
-    const it = items.find(x => x.uid === uid);
+    const it = items.find(x => x.uid === cb.dataset.uid);
     if (!it || it.done) return;
     const daysEl = el.querySelector('.days');
     if (daysEl) daysEl.textContent = fmtRemaining(remainingMs(it.end));

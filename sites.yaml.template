@@ -1,16 +1,16 @@
 # ============ 任务清单 - 站点配置 ============
-# 这个文件保存你各平台的登录信息。
-# 不需要哪个平台，把对应整段删掉即可，或者把 enabled 设为 false。
+# 首次启动时，程序会自动把这个文件复制成 sites.yaml
+# 然后你可以编辑 sites.yaml，填入自己的账号密码
 
 sites:
-  - id: thuoj_ai
+  - id: thuoj
     name: 清华 OJ
     type: thuoj
     url: https://ai.tuoj.thusaac.com/course/8/home
     session: thu_session.json
 
-  - id: tyche_ds
-    name: 程序设计基础
+  - id: tyche
+    name: Tyche
     type: tyche
     base_url: http://166.111.236.164:6080/tyche
     gid: 42

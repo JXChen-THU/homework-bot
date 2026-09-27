@@ -1,10 +1,11 @@
 import os
 import json
 from playwright.sync_api import sync_playwright
-from .base import Homework, LoginRequiredError, session_path
+from .base import Homework, LoginRequiredError
 
 
 def _get_courses(page):
+    """从首页提取所有课程 ID 和名称，扫描 iframe"""
     js = """() => {
         const seen = new Set();
         const courses = [];
@@ -16,6 +17,7 @@ def _get_courses(page):
                     if (!m) return;
                     const id = m[1];
                     if (seen.has(id)) return;
+                    // 往上找，看有没有"课程名(8位数字-数字)"这段文字
                     let node = a;
                     for (let i = 0; i < 8; i++) {
                         if (!node.parentElement) break;
@@ -30,6 +32,7 @@ def _get_courses(page):
                     }
                 });
             } catch(e) {}
+            // 递归扫描子 iframe
             try {
                 doc.querySelectorAll('iframe').forEach(f => {
                     try { if (f.contentDocument) scan(f.contentDocument); } catch(e) {}
@@ -46,8 +49,10 @@ def _get_courses(page):
 
 
 def _fetch_one_course(page, course_id, csrf):
+    """调作业接口，拿某一门课的作业"""
     js = """async (args) => {
         const [courseId, csrf] = args;
+        // 网络学堂用的是 DataTables 插件，参数格式固定
         const aoData = [
             {name: "sEcho", value: 1},
             {name: "iColumns", value: 8},
@@ -102,6 +107,7 @@ def _fetch_one_course(page, course_id, csrf):
 
 
 def _extract(data, site, course_name=""):
+    """把接口返回的 JSON 转成 Homework 列表"""
     result = []
     if not isinstance(data, dict):
         return result
@@ -125,10 +131,12 @@ def _extract(data, site, course_name=""):
 
 
 def fetch_homeworks(site, base_dir):
-    session = session_path(site, base_dir)
+    """静默抓取所有课程的作业"""
+    session = os.path.join(base_dir, site["session"])
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
+    # 课程列表缓存（避免每次扫描）
     cache_file = os.path.join(base_dir, f"{site['id']}_courses.json")
 
     with sync_playwright() as p:
@@ -139,16 +147,19 @@ def fetch_homeworks(site, base_dir):
         page.wait_for_load_state("networkidle")
         page.wait_for_timeout(3000)
 
+        # 判断是否登录
         if "login" in page.url.lower() or "sso" in page.url.lower():
             browser.close()
             raise LoginRequiredError(site["id"], site["name"])
 
+        # 优先用配置 -> 其次缓存 -> 最后现场扫描
         configured = site.get("courses") or []
         if configured:
             courses = [{"id": c["wlkcid"], "name": c.get("name", "")} for c in configured]
         elif os.path.exists(cache_file):
             with open(cache_file, encoding="utf-8") as f:
                 raw = json.load(f)
+            # 兼容旧缓存格式
             if raw and isinstance(raw[0], str):
                 courses = [{"id": x, "name": ""} for x in raw]
             else:
@@ -163,6 +174,7 @@ def fetch_homeworks(site, base_dir):
             browser.close()
             return []
 
+        # 从 cookie 里拿 CSRF token
         csrf = ''
         for c in ctx.cookies():
             n = c['name'].lower()
@@ -170,6 +182,7 @@ def fetch_homeworks(site, base_dir):
                 csrf = c['value']
                 break
 
+        # 逐门课抓作业
         all_homeworks = []
         for c in courses:
             data = _fetch_one_course(page, c["id"], csrf)
@@ -186,7 +199,8 @@ def fetch_homeworks(site, base_dir):
 
 
 def login(site, base_dir):
-    session = session_path(site, base_dir)
+    """弹窗让用户登录"""
+    session = os.path.join(base_dir, site["session"])
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, channel="msedge")
         ctx = browser.new_context()

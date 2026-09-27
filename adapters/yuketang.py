@@ -1,10 +1,11 @@
 import os
 from datetime import datetime
 from playwright.sync_api import sync_playwright
-from .base import Homework, LoginRequiredError, session_path
+from .base import Homework, LoginRequiredError
 
 
 def _ts_to_str(ts):
+    """毫秒时间戳 → "2026-09-29 23:59:00" """
     if not ts:
         return ""
     try:
@@ -14,6 +15,7 @@ def _ts_to_str(ts):
 
 
 def _fetch_courses(page):
+    """调接口拿当前用户的所有课程"""
     js = """async () => {
         try {
             const r = await fetch('/v2/api/web/courses/list?identity=2', {credentials: 'include'});
@@ -25,6 +27,7 @@ def _fetch_courses(page):
 
 
 def _fetch_activities(page, classroom_id):
+    """拿一门课的全部活动（含作业、习题、试卷）"""
     js = """async (cid) => {
         const url = '/v2/api/web/logs/learn/' + cid
                     + '?actype=-1&page=0&offset=500&sort=-1';
@@ -38,6 +41,7 @@ def _fetch_activities(page, classroom_id):
 
 
 def _extract_courses(data):
+    """从课程列表接口返回里提取 (id, name)"""
     result = []
     if not isinstance(data, dict):
         return result
@@ -50,29 +54,41 @@ def _extract_courses(data):
 
 
 def _extract_tasks(data, site, course_name=""):
+    """从活动列表里提取作业 / 习题 / 试卷
+    通过 type 区分：
+        19 = 作业（截止时间在 content.score_d）
+        5  = 考试（截止时间在 deadline）
+        4  = 试卷（截止时间在 deadline）
+        14 = 教学，跳过
+    """
     result = []
     if not isinstance(data, dict):
         return result
+
     acts = (data.get("data") or {}).get("activities") or []
     for a in acts:
         t = a.get("type")
         title = a.get("title") or ""
         end = ""
+
         if t == 19:
             # 作业
             end = _ts_to_str((a.get("content") or {}).get("score_d"))
+            title = "【作业】" + title
         elif t == 5:
-            # 课堂习题
+            # 考试
             end = _ts_to_str(a.get("deadline"))
+            title = "【考试】" + title
         elif t == 4:
             # 试卷
             end = _ts_to_str(a.get("deadline"))
-            if title and not title.startswith("【试卷】"):
-                title = "【试卷】" + title
+            title = "【试卷】" + title
         else:
             continue
+
         if not end or not title:
             continue
+
         result.append(Homework(
             site=site["id"],
             site_name=site["name"],
@@ -87,7 +103,8 @@ def _extract_tasks(data, site, course_name=""):
 
 
 def fetch_homeworks(site, base_dir):
-    session = session_path(site, base_dir)
+    """静默抓取：先拿课程列表，再逐门课拿活动"""
+    session = os.path.join(base_dir, site["session"])
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
@@ -103,7 +120,10 @@ def fetch_homeworks(site, base_dir):
             browser.close()
             raise LoginRequiredError(site["id"], site["name"])
 
+        # 1) 拿课程列表
         courses = _extract_courses(_fetch_courses(page))
+
+        # 2) 逐门课拿活动
         all_homeworks = []
         for c in courses:
             data = _fetch_activities(page, c["id"])
@@ -114,7 +134,8 @@ def fetch_homeworks(site, base_dir):
 
 
 def login(site, base_dir):
-    session = session_path(site, base_dir)
+    """弹窗让用户扫码登录"""
+    session = os.path.join(base_dir, site["session"])
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False, channel="msedge")
         ctx = browser.new_context()
@@ -122,6 +143,7 @@ def login(site, base_dir):
         page.goto(site["base_url"])
 
         logged_in = False
+        # 扫码可能要挺久，最多等 10 分钟
         for _ in range(200):
             page.wait_for_timeout(3000)
             try:

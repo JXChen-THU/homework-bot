@@ -1,17 +1,23 @@
+# ============================================================
+# 多平台调度器
+# 职责：读 sites.yaml，遍历每个站点，调用对应的抓取器
+# ============================================================
+
 import os
-import sys
 import yaml
 from adapters import REGISTRY
 from adapters.base import LoginRequiredError
 
-if getattr(sys, 'frozen', False):
-    BASE = os.path.dirname(sys.executable)
-else:
-    BASE = os.path.dirname(os.path.abspath(__file__))
 
+BASE = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 SITES_FILE = os.path.join(BASE, "sites.yaml")
 
 def load_sites(include_disabled=False):
+    """读取 sites.yaml，返回站点列表。
+    include_disabled=False 时过滤掉 enabled=False 的站点。
+    文件不存在返回空列表。"""
     if not os.path.exists(SITES_FILE):
         return []
     with open(SITES_FILE, encoding="utf-8") as f:
@@ -19,18 +25,23 @@ def load_sites(include_disabled=False):
     sites = data.get("sites", [])
     if include_disabled:
         return sites
+    # 只保留启用的（默认 enabled=True）
     return [s for s in sites if s.get("enabled", True)]
 
 
 def save_sites(sites):
+    """把站点列表写回 sites.yaml"""
     with open(SITES_FILE, "w", encoding="utf-8") as f:
         yaml.safe_dump(
             {"sites": sites}, f,
-            allow_unicode=True, sort_keys=False, default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+            default_flow_style=False,
         )
 
 
 def get_site(site_id):
+    """按 id 查一个站点（含被禁用的）"""
     for s in load_sites(include_disabled=True):
         if s["id"] == site_id:
             return s
@@ -38,10 +49,18 @@ def get_site(site_id):
 
 
 def fetch_all():
+    """遍历所有启用的站点，收集作业。
+    返回 (homeworks, errors, need_login)：
+        homeworks  - Homework 对象列表
+        errors     - 抓取失败的 [{site_name, message}, ...]
+        need_login - 需要登录的 [{site_id, site_name}, ...]
+    """
     homeworks = []
     errors = []
     need_login = []
+
     for site in load_sites():
+        # 从注册表里找对应的抓取器
         adapter = REGISTRY.get(site.get("type"))
         if not adapter:
             errors.append({
@@ -49,24 +68,32 @@ def fetch_all():
                 "message": f"未知类型 {site.get('type')}",
             })
             continue
+
         try:
-            items = adapter.fetch_homeworks(site, BASE)
+            items = adapter.fetch_homeworks(site, DATA_DIR)
             homeworks.extend(items)
         except LoginRequiredError:
-            need_login.append({"site_id": site["id"], "site_name": site["name"]})
+            # 会话失效
+            need_login.append({
+                "site_id": site["id"],
+                "site_name": site["name"],
+            })
         except Exception as e:
+            # 其他错误
             errors.append({
                 "site_name": site.get("name", site.get("id")),
                 "message": f"{type(e).__name__}: {e}",
             })
+
     return homeworks, errors, need_login
 
 
 def login_site(site_id):
+    """触发某站点的登录流程，返回 True/False"""
     site = get_site(site_id)
     if not site:
         return False
     adapter = REGISTRY.get(site.get("type"))
     if not adapter:
         return False
-    return adapter.login(site, BASE)
+    return adapter.login(site, DATA_DIR)

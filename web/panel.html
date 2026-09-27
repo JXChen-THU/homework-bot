@@ -2,49 +2,55 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>警告</title>
+<title>提醒</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }
 body {
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  background: #e74c3c;
-  color: white;
-  padding: 8px 12px;
+  background: #ffffff;
+  color: #2c3e50;
   overflow: hidden;
 }
 .header {
+  padding: 12px 14px;
+  background: #f0f3f6;
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 6px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  border-bottom: 1px solid #e1e6ee;
+  user-select: none;
 }
+.header .left { display: flex; align-items: center; gap: 6px; }
 .header button {
   font-size: 11px;
   padding: 3px 9px;
-  background: rgba(255,255,255,0.25);
-  color: white;
+  background: #dde4ea;
+  color: #54626f;
   border: none;
   border-radius: 4px;
   cursor: pointer;
 }
-.header button:hover { background: rgba(255,255,255,0.4); }
+.header button:hover { background: #cdd6de; }
+#body { padding: 8px 12px 10px; }
 .item {
   font-size: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
   line-height: 1.35;
+  padding-left: 4px;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #3a4a4a;
 }
 .item input[type=checkbox] {
   width: 14px;
   height: 14px;
   cursor: pointer;
   flex-shrink: 0;
-  accent-color: #ffffff;
+  accent-color: #4a69bd;
 }
 .item .title {
   flex: 1;
@@ -52,14 +58,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.item .time {
-  opacity: 0.9;
-  font-weight: 600;
+.item .due {
+  color: #95a5a6;
+  font-size: 11px;
   flex-shrink: 0;
 }
 .more {
   font-size: 11px;
-  opacity: 0.85;
+  color: #95a5a6;
   margin-top: 4px;
   padding-left: 26px;
 }
@@ -67,35 +73,56 @@ body {
 </head>
 <body>
 <div class="header">
-  <span>⚠️ 紧急 / 已过期</span>
+  <span class="left">📋 未完成 <span id="count"></span></span>
   <button id="toggle-main-btn" onclick="onToggleMain(event)">打开</button>
 </div>
-<div id="list"></div>
+<div id="body">
+  <div id="list"></div>
+</div>
 <script>
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 }
-function fmtHours(h) {
-  if (h < 0) return '已过期 ' + Math.abs(h).toFixed(1) + 'h';
-  if (h < 1) return '剩 ' + Math.max(1, Math.round(h * 60)) + '分';
-  return '剩 ' + h.toFixed(1) + 'h';
+
+// 跟红窗同一套格式化：剩 X 天 Y 小时 / 剩 X.X 小时 / 剩 X 分 / 已过期 …
+function fmtRemaining(h) {
+  if (h === null || h === undefined) return '';
+  if (h < 0) {
+    const ah = Math.abs(h);
+    if (ah < 1) return '已过期 ' + Math.max(1, Math.round(ah * 60)) + ' 分';
+    const d = Math.floor(ah / 24);
+    const rh = Math.floor(ah % 24);
+    if (d > 0) return '已过期 ' + d + ' 天 ' + rh + ' 小时';
+    return '已过期 ' + ah.toFixed(1) + ' 小时';
+  }
+  if (h < 1) return '剩 ' + Math.max(1, Math.round(h * 60)) + ' 分';
+  const d = Math.floor(h / 24);
+  const rh = Math.floor(h % 24);
+  if (d > 0) return '剩 ' + d + ' 天 ' + rh + ' 小时';
+  return '剩 ' + h.toFixed(1) + ' 小时';
 }
+
 function update(items) {
   const list = document.getElementById('list');
+  const cnt = document.getElementById('count');
+  cnt.textContent = items ? `(${items.length})` : '';
   if (!items || !items.length) { list.innerHTML = ''; return; }
+
   let html = '';
-  items.slice(0, 8).forEach(it => {
+  items.slice(0, 12).forEach(it => {
+    const t = fmtRemaining(it.hours_left);
+    const due = t ? `<span class="due">${escapeHtml(t)}</span>` : '';
     html += `
       <div class="item">
         <input type="checkbox" data-uid="${escapeHtml(it.uid)}" />
         <span class="title">${escapeHtml(it.title)}</span>
-        <span class="time">${fmtHours(it.hours_left)}</span>
+        ${due}
       </div>`;
   });
-  if (items.length > 8) {
-    html += `<div class="more">...还有 ${items.length - 8} 条</div>`;
+  if (items.length > 12) {
+    html += `<div class="more">...还有 ${items.length - 12} 条</div>`;
   }
   list.innerHTML = html;
 
@@ -136,10 +163,10 @@ async function onToggleMain(e) {
   setTimeout(refreshMainVisible, 80);
 }
 
-window.__updateUrgent = update;
+window.__updateNormal = update;
 
 window.addEventListener('pywebviewready', async () => {
-  window.pywebview.api.alert_ready();
+  window.pywebview.api.panel_ready();
   await refreshMainVisible();
   setInterval(refreshMainVisible, 1000);
 });
