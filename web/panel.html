@@ -24,6 +24,7 @@ body {
   user-select: none;
 }
 .header .left { display: flex; align-items: center; gap: 6px; }
+.header .header-btns { display: flex; gap: 4px; }
 .header button {
   font-size: 11px;
   padding: 3px 9px;
@@ -34,6 +35,7 @@ body {
   cursor: pointer;
 }
 .header button:hover { background: #cdd6de; }
+
 #body { padding: 8px 12px 10px; }
 .item {
   font-size: 12px;
@@ -74,7 +76,9 @@ body {
 <body>
 <div class="header">
   <span class="left">📋 未完成 <span id="count"></span></span>
-  <button id="toggle-main-btn" onclick="onToggleMain(event)">打开</button>
+  <div class="header-btns">
+    <button id="toggle-main-btn" onclick="onToggleMain(event)">主面板</button>
+  </div>
 </div>
 <div id="body">
   <div id="list"></div>
@@ -86,7 +90,6 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// 跟红窗同一套格式化：剩 X 天 Y 小时 / 剩 X.X 小时 / 剩 X 分 / 已过期 …
 function fmtRemaining(h) {
   if (h === null || h === undefined) return '';
   if (h < 0) {
@@ -147,8 +150,6 @@ async function refreshMainVisible() {
   } catch (e) {
     mainVisible = false;
   }
-  const btn = document.getElementById('toggle-main-btn');
-  btn.textContent = mainVisible ? '关闭' : '打开';
 }
 
 async function onToggleMain(e) {

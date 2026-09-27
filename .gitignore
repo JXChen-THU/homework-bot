@@ -1,7 +1,25 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 用户数据（含登录凭证、数据库、缓存）
 data/
 sites.yaml
+
+# PyInstaller 打包产物
 build/
 dist/
 *.spec
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 日志
+*.log

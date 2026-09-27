@@ -58,7 +58,11 @@ _cache_lock = threading.Lock()  # 保护 _items_cache 的线程锁
 
 _alert_ready = False        # 红窗 JS 是否加载完
 _panel_ready = False        # 白窗 JS 是否加载完
-_main_visible = True        # 主窗口是否可见
+_main_visible = False       # 主窗口是否可见（启动时隐藏，等首次抓取完再显示）
+_first_load_done = False    # 首次抓取是否已完成（用于「抓完再弹窗」）
+_alert_shown = False        # 红窗是否已经首次定位过
+_panel_shown = False        # 白窗是否已经首次定位过
+_main_positioned = False    # 主窗口是否已经首次定位过
 
 
 # ============================================================
@@ -113,7 +117,6 @@ def _parse_time(s):
     支持：2026-10-09 23:59:59 / 2026-10-09 23:59 / 带 T 的 ISO 格式。"""
     if not s:
         return None
-    # 归一化：T 换成空格，/ 换成 -
     s = s.strip().replace("T", " ").replace("/", "-")
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
         try:
@@ -133,15 +136,15 @@ def compute_urgent(items):
     result = []
     for it in items:
         if it.get("done"):
-            continue                       # 已完成，跳过
+            continue
         end = it.get("end")
         if not end:
-            continue                       # 没有截止时间，跳过
+            continue
         due = _parse_time(end)
         if due is None:
-            continue                       # 时间格式解析失败，跳过
-        h = (due - now).total_seconds() / 3600   # 剩余小时数（可能为负）
-        if h <= 24:                        # 24 小时内或已过期
+            continue
+        h = (due - now).total_seconds() / 3600
+        if h <= 24:
             result.append({
                 "uid": it["uid"],
                 "title": it["title"],
@@ -161,7 +164,7 @@ def compute_normal(items, urgent):
         if it.get("done"):
             continue
         if it["uid"] in urgent_uids:
-            continue                       # 已在紧急列表里，跳过
+            continue
         end = it.get("end")
         h = None
         if end:
@@ -182,25 +185,18 @@ def compute_normal(items, urgent):
 # 浮窗布局
 # ============================================================
 def _calc_height(n, header=42, row=22, max_rows=8, max_h=260):
-    """根据任务数量计算浮窗应该多高。
-    n         任务数
-    header    标题栏高度
-    row       每条任务高度
-    max_rows  最多显示几条
-    max_h     窗口最大高度
-    """
+    """根据任务数量计算浮窗应该多高。"""
     if n <= 0:
         return 60
     rows = min(n, max_rows)
-    h = header + rows * row + 16   # +16 是底部留白
+    h = header + rows * row + 16
     if n > max_rows:
-        h += 18                     # "还有 N 条"那一行
+        h += 18
     return max(70, min(h, max_h))
 
 
 def _sync_main():
-    """把内存里的任务列表推给主窗口，让它同步刷新（不重新抓取）。
-    勾选/添加/删除任务后调用。"""
+    """把内存里的任务列表推给主窗口，让它同步刷新（不重新抓取）。"""
     if not _main_window:
         return
     with _cache_lock:
@@ -212,16 +208,50 @@ def _sync_main():
         pass
 
 
+def show_main_window():
+    """显示主窗口，并把 _main_visible 置为 True。
+    首次显示时才设置大小和位置，避免对隐藏窗口做 move/resize
+    导致窗口被提前顶出来。"""
+    global _main_visible, _main_positioned
+    if not _main_window:
+        return
+    try:
+        # 首次显示：此时再设置大小和位置
+        if not _main_positioned:
+            try:
+                s = webview.screens[0]
+                W, H = s.width, s.height
+            except Exception:
+                W, H = 1920, 1080
+
+            MW, MH = 1000, 720
+            if W < MW + 40:
+                MW = W - 40
+            if H < MH + 80:
+                MH = H - 80
+
+            _main_window.resize(MW, MH)
+            _main_window.move(W - MW - 20, H - MH - 60)
+            _main_positioned = True
+
+        _main_window.show()
+        _main_window.restore()
+    except Exception:
+        pass
+    _main_visible = True
+
+
 def layout_all():
     """重新布局红窗和白窗。
     - 红窗：显示紧急任务；没有就隐藏
     - 白窗：显示普通任务；没有就隐藏
-    - 白窗排在红窗下方
+    - 白窗首次显示时排在红窗下方，之后不再强制移动
+    - 窗口位置只在首次显示时设置，之后拖动不会被复位
     """
+    global _alert_shown, _panel_shown
     if not _alert_window or not _panel_window:
         return
 
-    # 从内存缓存取一份数据
     with _cache_lock:
         items = list(_items_cache)
 
@@ -229,18 +259,20 @@ def layout_all():
     normal = compute_normal(items, urgent)
 
     W = _screen_w
-    y = ALERT_MARGIN   # 从屏幕顶端往下留边距
+    y_default = ALERT_MARGIN
 
     # ========== 红窗 ==========
     if urgent:
         w = ALERT_W
         h = _calc_height(len(urgent), header=42, row=20, max_rows=8, max_h=260)
-        x = W - ALERT_W - ALERT_MARGIN
 
         try:
-            _alert_window.resize(w, h)
-            _alert_window.move(x, y)
             _alert_window.show()
+            _alert_window.resize(w, h)
+            if not _alert_shown:
+                x = W - ALERT_W - ALERT_MARGIN
+                _alert_window.move(x, y_default)
+                _alert_shown = True
         except Exception:
             pass
 
@@ -252,23 +284,27 @@ def layout_all():
             except Exception as e:
                 print(f"[alert] {e}")
 
-        y += h + GAP   # 白窗从红窗下面开始
+        alert_bottom = y_default + h + GAP
     else:
         try:
             _alert_window.hide()
         except Exception:
             pass
+        alert_bottom = y_default
 
     # ========== 白窗 ==========
     if normal:
         w = ALERT_W
         h = _calc_height(len(normal), header=46, row=22, max_rows=12, max_h=360)
-        x = W - ALERT_W - ALERT_MARGIN
 
         try:
-            _panel_window.resize(w, h)
-            _panel_window.move(x, y)
             _panel_window.show()
+            _panel_window.resize(w, h)
+            if not _panel_shown:
+                x = W - ALERT_W - ALERT_MARGIN
+                y = alert_bottom if urgent else y_default
+                _panel_window.move(x, y)
+                _panel_shown = True
         except Exception:
             pass
 
@@ -309,7 +345,6 @@ def get_autostart_status():
             winreg.CloseKey(key)
             return {"enabled": bool(val), "command": val}
         except FileNotFoundError:
-            # 注册表里没这一项 = 没开启
             winreg.CloseKey(key)
             return {"enabled": False}
     except Exception as e:
@@ -337,19 +372,16 @@ def set_autostart_status(enabled):
 
 # ============================================================
 # Api 类：前端 JS 可调用的所有方法
-# JS 用法：window.pywebview.api.方法名(参数...)
 # ============================================================
 class Api:
     # ---------- 浮窗就绪通知 ----------
     def alert_ready(self):
-        """红窗 JS 加载完时调用。之后 Python 才能安全推送数据。"""
         global _alert_ready
         _alert_ready = True
         layout_all()
         return {"ok": True}
 
     def panel_ready(self):
-        """白窗 JS 加载完时调用。"""
         global _panel_ready
         _panel_ready = True
         layout_all()
@@ -357,19 +389,12 @@ class Api:
 
     # ---------- 主窗口显示/隐藏 ----------
     def show_main(self):
-        """显示主窗口（从浮窗点"打开"时调）。"""
-        global _main_visible
-        if _main_window:
-            try:
-                _main_window.show()
-                _main_window.restore()
-            except Exception:
-                pass
-        _main_visible = True
+        """显示主窗口（从浮窗点"主面板"时调）。"""
+        show_main_window()
         return {"ok": True}
 
     def hide_main(self):
-        """隐藏主窗口（从浮窗点"关闭"时调）。"""
+        """隐藏主窗口（从浮窗点"主面板"时调）。"""
         global _main_visible
         if _main_window:
             try:
@@ -385,11 +410,9 @@ class Api:
 
     # ---------- 任务数据 ----------
     def get_homeworks(self):
-        """刷新任务：重新抓取所有网站，返回完整列表。
-        返回 {"items": [...], "errors": [...], "need_login": [...]}"""
-        global _items_cache
+        """刷新任务：重新抓取所有网站，返回完整列表。"""
+        global _items_cache, _first_load_done
 
-        # 1. 抓各平台的作业
         try:
             homeworks, errors, need_login = fetch_all()
         except Exception as e:
@@ -397,7 +420,6 @@ class Api:
             errors = [{"site_name": "抓取", "message": f"{type(e).__name__}: {e}"}]
             need_login = []
 
-        # 2. 从数据库读完成状态和手动任务
         conn = get_conn()
         try:
             done_rows = dict(conn.execute("SELECT uid, done_at FROM done").fetchall())
@@ -407,7 +429,6 @@ class Api:
         finally:
             conn.close()
 
-        # 3. 合并成统一格式
         items = []
         for hw in homeworks:
             d = hw.to_dict()
@@ -429,16 +450,19 @@ class Api:
                 "manual": True,
             })
 
-        # 4. 更新内存缓存
         with _cache_lock:
             _items_cache = items
 
         layout_all()
+
+        if not _first_load_done:
+            _first_load_done = True
+            show_main_window()
+
         return {"items": items, "errors": errors, "need_login": need_login}
 
     def toggle_done(self, uid, done):
         """勾选/取消勾选一个任务。"""
-        # 1. 更新数据库
         conn = get_conn()
         try:
             if done:
@@ -452,22 +476,19 @@ class Api:
         finally:
             conn.close()
 
-        # 2. 更新内存缓存
         with _cache_lock:
             for it in _items_cache:
                 if it["uid"] == uid:
                     it["done"] = done
                     break
 
-        # 3. 刷新浮窗 + 主窗口
         layout_all()
         _sync_main()
         return {"ok": True}
 
     # ---------- 登录 ----------
     def login(self, site_id):
-        """触发某站点的登录流程。
-        Tyche 需要 Basic Auth，如果没填账号密码就拒绝。"""
+        """触发某站点的登录流程。"""
         from scraper import load_sites
         for s in load_sites(include_disabled=True):
             if s["id"] == site_id and s.get("type") == "tyche":
@@ -485,13 +506,12 @@ class Api:
         if not due or not due.strip():
             return {"error": "截止时间不能为空"}
 
-        uid = "manual:" + uuid.uuid4().hex[:12]   # 生成唯一 ID
+        uid = "manual:" + uuid.uuid4().hex[:12]
         title = title.strip()
         course = (course or "").strip()
         due = due.strip()
         url = (url or "").strip()
 
-        # 1. 写数据库
         conn = get_conn()
         try:
             conn.execute(
@@ -502,7 +522,6 @@ class Api:
         finally:
             conn.close()
 
-        # 2. 加进内存缓存
         with _cache_lock:
             _items_cache.append({
                 "site": "manual",
@@ -526,7 +545,6 @@ class Api:
         global _items_cache
         if not uid.startswith("manual:"):
             return {"error": "只能删除手动任务"}
-        # 1. 从数据库删
         conn = get_conn()
         try:
             conn.execute("DELETE FROM manual_tasks WHERE uid=?", (uid,))
@@ -534,7 +552,6 @@ class Api:
             conn.commit()
         finally:
             conn.close()
-        # 2. 从内存缓存删
         with _cache_lock:
             _items_cache = [x for x in _items_cache if x["uid"] != uid]
         layout_all()
@@ -552,7 +569,6 @@ class Api:
             has_session = False
             if sess:
                 has_session = os.path.exists(os.path.join(_DATA, sess))
-            # Tyche 需要 Basic Auth 账号密码
             has_cred = True
             if s.get("type") == "tyche":
                 has_cred = bool(s.get("basic_user") and s.get("basic_pass"))
@@ -591,15 +607,13 @@ class Api:
         return {"error": "站点不存在"}
 
     def apply_sites_changes(self, changes):
-        """批量应用设置面板的改动。
-        changes 是 [{id, enabled, deleted, clear_session}, ...]"""
+        """批量应用设置面板的改动。"""
         from scraper import load_sites, save_sites, DATA_DIR as _DATA
         sites = load_sites(include_disabled=True)
         by_id = {s["id"]: s for s in sites}
         to_delete = set()
 
         def _wipe_session(sid):
-            """删除某站点的 session 文件和课程缓存。"""
             s = by_id.get(sid)
             if not s:
                 return
@@ -612,7 +626,6 @@ class Api:
             if os.path.exists(cache):
                 os.remove(cache)
 
-        # 第一轮：处理"清除登录"和"删除"
         for ch in changes:
             sid = ch.get("id")
             if sid not in by_id:
@@ -623,14 +636,12 @@ class Api:
                 to_delete.add(sid)
                 _wipe_session(sid)
 
-        # 第二轮：处理"启用/禁用"
         for ch in changes:
             sid = ch.get("id")
             if sid in to_delete or sid not in by_id:
                 continue
             by_id[sid]["enabled"] = bool(ch.get("enabled", True))
 
-        # 保存
         new_sites = [s for s in sites if s["id"] not in to_delete]
         save_sites(new_sites)
         return {"ok": True}
@@ -658,8 +669,7 @@ def background_ticker():
 
 
 def _on_main_closing():
-    """主窗口点 X 时触发：隐藏而不是关闭（后台继续跑浮窗）。
-    返回 False 阻止真正的关闭。"""
+    """主窗口点 X 时触发：隐藏而不是关闭。"""
     global _main_visible
     _main_visible = False
     try:
@@ -669,53 +679,64 @@ def _on_main_closing():
     return False
 
 
+def _startup_show_fallback():
+    """兜底：万一首次抓取长时间没完成，最多等 5 分钟
+    就把主窗口显示出来，避免永远隐藏。"""
+    global _first_load_done
+    for _ in range(600):  # 600 × 0.5s = 300s
+        time.sleep(0.5)
+        if _first_load_done:
+            return
+    if not _first_load_done:
+        _first_load_done = True
+        show_main_window()
+
+
 # ============================================================
 # 主函数
 # ============================================================
 def main():
     global _main_window, _alert_window, _panel_window, _screen_w
 
-    # 首次启动：生成 sites.yaml
     ensure_sites_yaml()
 
     api = Api()
 
-    # 三个窗口对应的 HTML 文件
     index_path = os.path.join(RES, "web", "index.html")
     alert_path = os.path.join(RES, "web", "alert.html")
     panel_path = os.path.join(RES, "web", "panel.html")
 
-    # ---- 创建三个窗口 ----
-    # 主窗口
+    # 主窗口：先隐藏，等首次抓取完再显示
     _main_window = webview.create_window(
         "任务清单", index_path, js_api=api,
         width=1000, height=720,
+        hidden=True,
     )
     _main_window.events.closing += _on_main_closing
 
-    # 红色浮窗：无边框、置顶、初始隐藏
+    # 红色浮窗
     _alert_window = webview.create_window(
         "警告", alert_path, js_api=api,
         frameless=True, on_top=True, hidden=True,
         width=ALERT_W, height=140,
         transparent=True,
     )
+    # 白色浮窗
     _panel_window = webview.create_window(
-        "面板", panel_path, js_api=api,
+        "提醒", panel_path, js_api=api,
         frameless=True, on_top=True, hidden=True,
         width=ALERT_W, height=200,
         transparent=True,
     )
 
-    # 启动后台倒计时线程
     threading.Thread(target=background_ticker, daemon=True).start()
+    threading.Thread(target=_startup_show_fallback, daemon=True).start()
 
     def _after_start():
         """GUI 启动后的初始化流程。
-        必须写在 webview.start() 里，因为 webview.screens 只有
-        在 GUI 启动后才有效。"""
+        注意：这里不要对主窗口做 resize/move，
+        否则隐藏窗口会被顶出来。主窗口的定位在 show_main_window() 里做。"""
         global _screen_w
-        # 拿屏幕尺寸
         try:
             s = webview.screens[0]
             W, H = s.width, s.height
@@ -724,19 +745,6 @@ def main():
 
         _screen_w = W
 
-        # 主窗口放右下角
-        MW, MH = 1000, 720
-        if W < MW + 40:
-            MW = W - 40
-        if H < MH + 80:
-            MH = H - 80
-        try:
-            _main_window.resize(MW, MH)
-            _main_window.move(W - MW - 20, H - MH - 60)
-        except Exception:
-            pass
-
-        # 让浮窗先渲染
         time.sleep(0.3)
         layout_all()
 

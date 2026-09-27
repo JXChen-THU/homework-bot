@@ -18,11 +18,19 @@ body {
 header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
 }
 h1 { font-size: 22px; font-weight: 600; }
-.actions { display: flex; gap: 8px; }
+
+/* 刷新中的提示文字（在 h1 右侧、按钮左侧的那块空白里） */
+.loading-hint {
+  font-size: 13px;
+  color: #7f8c8d;
+  font-weight: 500;
+}
+
+.actions { display: flex; gap: 8px; margin-left: auto; }
 
 /* 右上角三个按钮共用样式 */
 .actions button {
@@ -413,6 +421,7 @@ h1 { font-size: 22px; font-weight: 600; }
 <!-- ========== 顶部栏 ========== -->
 <header>
   <h1>📋 任务</h1>
+  <span id="loading-hint" class="loading-hint"></span>
   <div class="actions">
     <button id="add-btn">添加任务</button>
     <button id="refresh-btn">刷新任务</button>
@@ -535,6 +544,7 @@ const refreshBtn = document.getElementById('refresh-btn');
 const addBtn = document.getElementById('add-btn');
 const modalBg = document.getElementById('modal-bg');
 const modalError = document.getElementById('modal-error');
+const loadingHint = document.getElementById('loading-hint');
 
 // 全局状态
 let items = [];             // 所有任务
@@ -724,6 +734,7 @@ function render() {
 // ============================================================
 async function load() {
   refreshBtn.disabled = true;
+  loadingHint.textContent = '任务刷新中，请等待…';
 
   try {
     const res = await window.pywebview.api.get_homeworks();
@@ -738,6 +749,7 @@ async function load() {
     banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
   } finally {
     refreshBtn.disabled = false;
+    loadingHint.textContent = '';
   }
 }
 

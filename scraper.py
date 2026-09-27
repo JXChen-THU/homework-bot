@@ -4,6 +4,8 @@
 # ============================================================
 
 import os
+import socket
+import time
 import yaml
 from adapters import REGISTRY
 from adapters.base import LoginRequiredError
@@ -13,6 +15,39 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SITES_FILE = os.path.join(BASE, "sites.yaml")
+
+
+# ============================================================
+# 网络检测
+# 用来检测网络是否可用的目标，依次尝试，任意一个成功即视为已联网。
+# 选用几个稳定的目标，避免某个站点临时不可达导致误判。
+# ============================================================
+_NET_CHECK_TARGETS = [
+    ("www.tsinghua.edu.cn", 443),
+    ("www.baidu.com", 443),
+    ("223.5.5.5", 53),        # 阿里公共 DNS，作为兜底
+]
+
+
+def wait_for_network(timeout=120, interval=2):
+    """等待网络就绪。
+    返回 True 表示已联网；False 表示超过 timeout 秒仍没网。
+
+    开机自启动时，程序可能比系统联网更快，所以先在这里等一下，
+    避免一启动就抓取，全部报连接错误。
+    """
+    deadline = time.time() + timeout
+    while True:
+        for host, port in _NET_CHECK_TARGETS:
+            try:
+                with socket.create_connection((host, port), timeout=2):
+                    return True
+            except Exception:
+                continue
+        if time.time() >= deadline:
+            return False
+        time.sleep(interval)
+
 
 def load_sites(include_disabled=False):
     """读取 sites.yaml，返回站点列表。
@@ -55,6 +90,13 @@ def fetch_all():
         errors     - 抓取失败的 [{site_name, message}, ...]
         need_login - 需要登录的 [{site_id, site_name}, ...]
     """
+    # 先等网络就绪（开机自启动时可能比系统联网更快）
+    if not wait_for_network(timeout=120):
+        return [], [{
+            "site_name": "网络",
+            "message": "等待网络连接超时（120 秒），请检查网络后点「刷新任务」重试",
+        }], []
+
     homeworks = []
     errors = []
     need_login = []
