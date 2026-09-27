@@ -4,6 +4,7 @@
 # ============================================================
 
 import os
+import sys
 import socket
 import time
 import yaml
@@ -11,7 +12,13 @@ from adapters import REGISTRY
 from adapters.base import LoginRequiredError
 
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+# 打包后 __file__ 指向 _internal 里面，
+# 用户数据（sites.yaml、data/）要放在 exe 旁边，和 app.py 保持一致
+if getattr(sys, 'frozen', False):
+    BASE = os.path.dirname(sys.executable)
+else:
+    BASE = os.path.dirname(os.path.abspath(__file__))
+
 DATA_DIR = os.path.join(BASE, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SITES_FILE = os.path.join(BASE, "sites.yaml")

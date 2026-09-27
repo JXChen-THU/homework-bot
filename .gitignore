@@ -23,3 +23,11 @@ dist/
 
 # 日志
 *.log
+data/
+sites.yaml
+build/
+dist/
+.venv/
+__pycache__/
+*.spec
+*.log
