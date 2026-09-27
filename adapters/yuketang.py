@@ -59,9 +59,16 @@ def _extract_tasks(data, site, course_name=""):
         title = a.get("title") or ""
         end = ""
         if t == 19:
+            # 作业
             end = _ts_to_str((a.get("content") or {}).get("score_d"))
         elif t == 5:
+            # 课堂习题
             end = _ts_to_str(a.get("deadline"))
+        elif t == 4:
+            # 试卷
+            end = _ts_to_str(a.get("deadline"))
+            if title and not title.startswith("【试卷】"):
+                title = "【试卷】" + title
         else:
             continue
         if not end or not title:
