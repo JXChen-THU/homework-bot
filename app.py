@@ -60,10 +60,10 @@ _panel_shown = False
 _main_positioned = False
 _quit_flag = False
 
-# 用户手动最小化（缩到任务栏）
+# 用户最小化浮窗（缩到任务栏）
 _alert_minimized = False
 _panel_minimized = False
-# 用户手动关闭（× 掉，不再自动弹出）
+# 用户关闭浮窗（× 掉，不再自动弹出）
 _alert_dismissed = False
 _panel_dismissed = False
 
@@ -307,22 +307,6 @@ def layout_all():
 
 
 # ============================================================
-# 判断当前有没有需要显示的浮窗
-# ============================================================
-def _has_active_floating():
-    """有紧急任务且红窗没被×，或 有普通任务且白窗没被× → True"""
-    with _cache_lock:
-        items = list(_items_cache)
-    urgent = compute_urgent(items)
-    normal = compute_normal(items, urgent)
-    if urgent and not _alert_dismissed:
-        return True
-    if normal and not _panel_dismissed:
-        return True
-    return False
-
-
-# ============================================================
 # 开机自启动
 # ============================================================
 def _get_start_command():
@@ -437,6 +421,26 @@ class Api:
             _panel_window.hide()
         except Exception:
             pass
+        return {"ok": True}
+
+    # ---------- 浮窗：重新打开 ----------
+    def show_floating(self):
+        """重置浮窗的关闭/最小化状态，让它们重新显示。
+        由主面板的「浮窗」按钮调用。
+        """
+        global _alert_dismissed, _panel_dismissed
+        global _alert_minimized, _panel_minimized
+        global _alert_shown, _panel_shown
+
+        _alert_dismissed = False
+        _panel_dismissed = False
+        _alert_minimized = False
+        _panel_minimized = False
+        # 重置定位标志，让浮窗重新回到右上角（避免上次拖走后位置怪怪的）
+        _alert_shown = False
+        _panel_shown = False
+
+        layout_all()
         return {"ok": True}
 
     # ---------- 任务数据 ----------
@@ -677,40 +681,26 @@ class Api:
 
 
 # ============================================================
-# 主窗口关闭行为
+# 主窗口关闭：任何方式关闭 → 退出程序
 # ============================================================
 def _on_main_closing():
-    """主窗口点 X 时的处理：
-    - 还有浮窗要显示 → 最小化到任务栏
-    - 没有浮窗了 → 销毁所有窗口，事件循环自然结束
-    """
-    global _main_visible, _quit_flag
+    """主窗口被关闭（标题栏 X / 任务栏右键关闭 / Alt+F4）
+    → 销毁所有窗口，退出程序。"""
+    global _quit_flag
+    _quit_flag = True
 
-    if not _has_active_floating():
-        # 所有浮窗都不需要显示 → 关闭所有窗口
-        _quit_flag = True
+    def _close_all():
+        time.sleep(0.2)
+        for w in (_alert_window, _panel_window):
+            if w is None:
+                continue
+            try:
+                w.destroy()
+            except Exception:
+                pass
 
-        def _close_all():
-            # 稍微等一下，让主窗口先关掉
-            time.sleep(0.2)
-            for w in (_alert_window, _panel_window):
-                if w is None:
-                    continue
-                try:
-                    w.destroy()
-                except Exception:
-                    pass
-
-        threading.Thread(target=_close_all, daemon=True).start()
-        return True   # 允许主窗口关闭
-
-    # 还有浮窗 → 最小化到任务栏
-    _main_visible = False
-    try:
-        _main_window.minimize()
-    except Exception:
-        pass
-    return False
+    threading.Thread(target=_close_all, daemon=True).start()
+    return True
 
 
 def _startup_show_fallback():
