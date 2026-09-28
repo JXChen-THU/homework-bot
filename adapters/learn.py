@@ -85,10 +85,9 @@ def _fetch_one_course(page, course_id, csrf):
 
         const params = new URLSearchParams();
         params.append('_csrf', csrf);
-        params.append('_csrf', csrf);
         params.append('aoData', JSON.stringify(aoData));
 
-        const url = '/b/wlxt/kczy/zy/student/zyListWj?_csrf=' + csrf + '&_csrf=' + csrf;
+        const url = '/b/wlxt/kczy/zy/student/zyListWj?_csrf=' + csrf;
 
         try {
             const r = await fetch(url, {

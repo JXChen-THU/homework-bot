@@ -424,9 +424,9 @@ class Api:
         return {"ok": True}
 
     # ---------- 浮窗：重新打开 ----------
-    def show_floating(self):
+    def reset_floating(self):
         """重置浮窗的关闭/最小化状态，让它们重新显示。
-        由主面板的「浮窗」按钮调用。
+        由主面板的「重置浮窗」按钮调用。
         """
         global _alert_dismissed, _panel_dismissed
         global _alert_minimized, _panel_minimized
@@ -439,6 +439,15 @@ class Api:
         # 重置定位标志，让浮窗重新回到右上角（避免上次拖走后位置怪怪的）
         _alert_shown = False
         _panel_shown = False
+
+        # 关键：从任务栏恢复（如果之前被最小化），show() 对已最小化的窗口无效
+        for w in (_alert_window, _panel_window):
+            if w is None:
+                continue
+            try:
+                w.restore()
+            except Exception:
+                pass
 
         layout_all()
         return {"ok": True}

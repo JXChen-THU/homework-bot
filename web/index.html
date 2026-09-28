@@ -562,8 +562,7 @@ function renderBanners(errors, needLogin) {
   if (needLogin && needLogin.length) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
     needLogin.forEach(s => {
-      const credWarn = s.need_credentials ? '（需先填写账号密码）' : '';
-      html += `<button data-login-site="${escapeHtml(s.site_id)}">登录 ${escapeHtml(s.site_name)}${credWarn}</button>`;
+      html += `<button data-login-site="${escapeHtml(s.site_id)}">登录 ${escapeHtml(s.site_name)}</button>`;
     });
     html += '</div>';
   }
