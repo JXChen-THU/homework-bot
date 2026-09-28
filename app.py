@@ -307,6 +307,22 @@ def layout_all():
 
 
 # ============================================================
+# 判断当前有没有需要显示的浮窗
+# ============================================================
+def _has_active_floating():
+    """有紧急任务且红窗没被×，或 有普通任务且白窗没被× → True"""
+    with _cache_lock:
+        items = list(_items_cache)
+    urgent = compute_urgent(items)
+    normal = compute_normal(items, urgent)
+    if urgent and not _alert_dismissed:
+        return True
+    if normal and not _panel_dismissed:
+        return True
+    return False
+
+
+# ============================================================
 # 开机自启动
 # ============================================================
 def _get_start_command():
@@ -665,22 +681,30 @@ class Api:
 # ============================================================
 def _on_main_closing():
     """主窗口点 X 时的处理：
-    - 两个浮窗都已被 × → 真正退出
-    - 否则 → 最小化到任务栏
+    - 还有浮窗要显示 → 最小化到任务栏
+    - 没有浮窗了 → 销毁所有窗口，事件循环自然结束
     """
     global _main_visible, _quit_flag
-    if _alert_dismissed and _panel_dismissed:
-        # 都关掉了 → 真正退出
+
+    if not _has_active_floating():
+        # 所有浮窗都不需要显示 → 关闭所有窗口
         _quit_flag = True
-        for w in (_alert_window, _panel_window):
-            if w is None:
-                continue
-            try:
-                w.destroy()
-            except Exception:
-                pass
-        return True
-    # 还有浮窗在 → 最小化
+
+        def _close_all():
+            # 稍微等一下，让主窗口先关掉
+            time.sleep(0.2)
+            for w in (_alert_window, _panel_window):
+                if w is None:
+                    continue
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_close_all, daemon=True).start()
+        return True   # 允许主窗口关闭
+
+    # 还有浮窗 → 最小化到任务栏
     _main_visible = False
     try:
         _main_window.minimize()
