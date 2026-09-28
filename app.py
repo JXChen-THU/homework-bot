@@ -202,25 +202,24 @@ def show_main_window():
     if not _main_window:
         return
     try:
-        if not _main_positioned:
-            try:
-                s = webview.screens[0]
-                W, H = s.width, s.height
-            except Exception:
-                W, H = 1920, 1080
+        try:
+            s = webview.screens[0]
+            W, H = s.width, s.height
+        except Exception:
+            W, H = 1920, 1080
 
-            MW, MH = 1000, 720
-            if W < MW + 40:
-                MW = W - 40
-            if H < MH + 80:
-                MH = H - 80
+        MW, MH = 1000, 720
+        if W < MW + 40:
+            MW = W - 40
+        if H < MH + 80:
+            MH = H - 80
 
-            _main_window.resize(MW, MH)
-            _main_window.move(W - MW - 20, H - MH - 60)
-            _main_positioned = True
-
+        # 先 restore 从任务栏拉出来，再 resize + move 到右下角，最后 show
         _main_window.restore()
+        _main_window.resize(MW, MH)
+        _main_window.move(W - MW - 20, H - MH - 60)
         _main_window.show()
+        _main_positioned = True
     except Exception:
         pass
     _main_visible = True
@@ -712,6 +711,18 @@ def _on_main_closing():
     return True
 
 
+def _on_main_minimized():
+    """主窗被最小化到任务栏 → 逻辑上视为不可见，浮窗按钮切换为「显示主面板」。"""
+    global _main_visible
+    _main_visible = False
+
+
+def _on_main_restored():
+    """主窗从任务栏恢复 → 逻辑上视为可见。"""
+    global _main_visible
+    _main_visible = True
+
+
 def _startup_show_fallback():
     global _first_load_done
     for _ in range(600):
@@ -743,6 +754,8 @@ def main():
         minimized=True,
     )
     _main_window.events.closing += _on_main_closing
+    _main_window.events.minimized += _on_main_minimized
+    _main_window.events.restored += _on_main_restored
 
     _alert_window = webview.create_window(
         "警告", alert_path, js_api=api,
