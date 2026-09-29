@@ -35,3 +35,9 @@ sites:
     type: smartestu
     base_url: https://smartestu.cn/
     session: smartestu_session.json
+
+  - id: unipus
+    name: U校园
+    type: unipus
+    base_url: https://uai.unipus.cn/portal
+    session: unipus_session.json
