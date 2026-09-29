@@ -29,3 +29,9 @@ sites:
     type: yuketang
     base_url: https://pro.yuketang.cn/v2/web/index
     session: yuketang_session.json
+
+  - id: smartestu
+    name: 数你最灵
+    type: smartestu
+    base_url: https://smartestu.cn/
+    session: smartestu_session.json
