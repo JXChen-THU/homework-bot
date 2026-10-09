@@ -17,7 +17,7 @@ from adapters.base import LoginRequiredError
 if getattr(sys, 'frozen', False):
     BASE = os.path.dirname(sys.executable)
 else:
-    BASE = os.path.dirname(os.path.abspath(__file__))
+    BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 DATA_DIR = os.path.join(BASE, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
