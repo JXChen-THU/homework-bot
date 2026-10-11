@@ -221,6 +221,7 @@ h1 { font-size: 22px; font-weight: 600; }
   overflow-y: auto;
 }
 .modal h2 { font-size: 18px; margin-bottom: 18px; }
+.login-note { font-size: 13px; color: #7f8c8d; margin-bottom: 14px; line-height: 1.5; }
 
 .field { margin-bottom: 14px; }
 .field label {

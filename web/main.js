@@ -67,24 +67,45 @@ function renderBanners(errors, needLogin) {
     btn.addEventListener('click', async () => {
       const siteId = btn.dataset.loginSite;
       btn.disabled = true;
-      const originalText = btn.textContent;
-      btn.textContent = '请在弹出的浏览器里登录...';
+      btn.textContent = '正在尝试自动登录…';
 
-      const r = await window.pywebview.api.login(siteId);
+      let r;
+      try {
+        r = await window.pywebview.api.login(siteId);
+      } catch (error) {
+        btn.disabled = false;
+        btn.textContent = '登录失败，点击重试';
+        return;
+      }
 
       if (r.ok) {
+        document.getElementById('manual-login-bg').classList.remove('open');
         await load();
       } else if (r.error === 'need_credentials') {
         btn.disabled = false;
-        btn.textContent = originalText;
-        alert('这个网站需要先填写账号密码。\n\n请点击右上角「设置」，在网站列表中找到它，点「填账号密码」填好后再回来登录。');
+        btn.textContent = '先填写账号密码';
+        await openSettings();
+        await openCredDialog(siteId);
       } else {
+        document.getElementById('manual-login-bg').classList.remove('open');
         btn.disabled = false;
         btn.textContent = '登录未完成，重试';
       }
     });
   });
 }
+
+window.__showManualLogin = function(siteName, message) {
+  document.getElementById('manual-login-title').textContent = `${siteName} 需要手动登录`;
+  document.getElementById('manual-login-message').textContent = message;
+  document.getElementById('manual-login-bg').classList.add('open');
+};
+document.getElementById('manual-login-close').addEventListener('click', () => {
+  document.getElementById('manual-login-bg').classList.remove('open');
+});
+document.getElementById('manual-login-bg').addEventListener('click', event => {
+  if (event.target.id === 'manual-login-bg') event.currentTarget.classList.remove('open');
+});
 
 // ============================================================
 // 任务排序
@@ -321,9 +342,11 @@ function renderSites() {
 
     let credBadge = '';
     let credBtn = '';
-    if (s.type === 'tyche') {
+    if (s.type !== 'yuketang') {
       if (!s.has_credentials) credBadge = '<span class="cred">未填账号密码</span>';
       credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填账号密码</button>`;
+    } else {
+      credBadge = '<span class="cred">扫码登录</span>';
     }
 
     return `
@@ -414,10 +437,17 @@ async function openCredDialog(siteId) {
   credError.textContent = '';
   document.getElementById('cred-user').value = '';
   document.getElementById('cred-pass').value = '';
+  const site = sitesFullInfo.find(item => item.id === siteId);
+  const description = document.getElementById('cred-desc');
+  if (site && site.type === 'tyche') {
+    description.textContent = '填写访问 Tyche 时 Basic Auth 弹窗所需的账号密码。凭据保存在本机 sites.yaml 中，请勿分享该文件。';
+  } else {
+    description.textContent = '程序会尝试在登录页自动填写并提交。验证码或其他额外验证仍需你在弹出的浏览器中完成。账号密码保存在本机 sites.yaml 中，请勿分享该文件。';
+  }
   const r = await window.pywebview.api.get_site_credentials(siteId);
   if (r && r.ok) {
-    document.getElementById('cred-user').value = r.basic_user || '';
-    document.getElementById('cred-pass').value = r.basic_pass || '';
+    document.getElementById('cred-user').value = r.username || '';
+    document.getElementById('cred-pass').value = r.password || '';
   }
   credBg.classList.add('open');
   setTimeout(() => document.getElementById('cred-user').focus(), 50);

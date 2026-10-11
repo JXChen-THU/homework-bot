@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
+from .auth import login_with_credentials
 
 
 def _iso_to_local(s):
@@ -135,38 +136,14 @@ def fetch_homeworks(site, base_dir):
         return _extract_homeworks(data, site, course_map)
 
 
-def login(site, base_dir):
-    """弹窗让用户手动登录，成功后保存会话。
-    通过检测 cookie 变化判断登录成功，多等 5 秒让页面稳定。"""
-    session = os.path.join(base_dir, site["session"])
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="msedge")
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(site["base_url"])
+def _login_success(page, _site):
+    data = _fetch_session(page)
+    return isinstance(data, dict) and bool(data.get("user"))
 
-        # 记录初始 cookie
-        initial_cookies = set(
-            (c['name'], c['value']) for c in ctx.cookies()
-        )
 
-        logged_in = False
-        # 最多等 10 分钟
-        for _ in range(200):
-            page.wait_for_timeout(3000)
-            try:
-                current_cookies = set(
-                    (c['name'], c['value']) for c in ctx.cookies()
-                )
-                if current_cookies != initial_cookies:
-                    # cookie 变了 → 说明已登录，再等 5 秒
-                    page.wait_for_timeout(5000)
-                    logged_in = True
-                    break
-            except Exception:
-                pass
-
-        if logged_in:
-            ctx.storage_state(path=session)
-        browser.close()
-        return logged_in
+def login(site, base_dir, manual_required=None):
+    """自动填写账号密码；验证码或其他验证交由用户完成。"""
+    return login_with_credentials(
+        site, base_dir, _login_success,
+        manual_required or (lambda _name, _auto: None),
+    )

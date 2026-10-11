@@ -441,13 +441,37 @@ class Api:
 
     # ---------- 登录 ----------
     def login(self, site_id):
-        from core.site_runner import load_sites
-        for s in load_sites(include_disabled=True):
-            if s["id"] == site_id and s.get("type") == "tyche":
-                if not (s.get("basic_user") and s.get("basic_pass")):
-                    return {"ok": False, "error": "need_credentials"}
-        ok = login_site(site_id)
-        return {"ok": ok}
+        from core.site_runner import get_site
+        from adapters.auth import site_credentials
+
+        site = get_site(site_id)
+        if not site:
+            return {"ok": False, "error": "site_not_found"}
+        if site.get("type") != "yuketang":
+            username, password = site_credentials(site)
+            if not username or not password:
+                return {"ok": False, "error": "need_credentials"}
+
+        def manual_required(site_name, auto_attempted):
+            if auto_attempted:
+                message = "程序已尝试自动填写并登录，但网站仍需要额外验证。请在弹出的浏览器窗口中完成验证码、确认或其他步骤。"
+            elif site.get("type") == "yuketang":
+                message = "雨课堂需要扫码登录。请在弹出的浏览器窗口中扫码；程序会在登录成功后自动保存会话。"
+            else:
+                message = "程序没有找到可自动提交的登录表单。请在弹出的浏览器窗口中进入登录页并完成登录；成功后程序会自动保存会话。"
+            if _main_window:
+                try:
+                    js = (
+                        "window.__showManualLogin && window.__showManualLogin("
+                        + json.dumps(site_name, ensure_ascii=False) + ", "
+                        + json.dumps(message, ensure_ascii=False) + ")"
+                    )
+                    _main_window.evaluate_js(js)
+                except Exception:
+                    pass
+
+        ok = login_site(site_id, manual_required=manual_required)
+        return {"ok": bool(ok)}
 
     # ---------- 手动任务 ----------
     def add_task(self, title, course, due, url):
@@ -518,9 +542,9 @@ class Api:
             has_session = False
             if sess:
                 has_session = os.path.exists(os.path.join(_DATA, sess))
-            has_cred = True
-            if s.get("type") == "tyche":
-                has_cred = bool(s.get("basic_user") and s.get("basic_pass"))
+            username, password = (s.get("username") or s.get("basic_user"),
+                                  s.get("password") or s.get("basic_pass"))
+            has_cred = s.get("type") == "yuketang" or bool(username and password)
             result.append({
                 "id": s["id"],
                 "name": s["name"],
@@ -537,8 +561,8 @@ class Api:
             if s["id"] == site_id:
                 return {
                     "ok": True,
-                    "basic_user": s.get("basic_user", ""),
-                    "basic_pass": s.get("basic_pass", ""),
+                    "username": s.get("username") or s.get("basic_user", ""),
+                    "password": s.get("password") or s.get("basic_pass", ""),
                 }
         return {"error": "站点不存在"}
 
@@ -547,8 +571,14 @@ class Api:
         sites = load_sites(include_disabled=True)
         for s in sites:
             if s["id"] == site_id:
-                s["basic_user"] = (basic_user or "").strip()
-                s["basic_pass"] = (basic_pass or "").strip()
+                username = (basic_user or "").strip()
+                password = (basic_pass or "").strip()
+                if s.get("type") == "tyche":
+                    s["basic_user"] = username
+                    s["basic_pass"] = password
+                else:
+                    s["username"] = username
+                    s["password"] = password
                 save_sites(sites)
                 return {"ok": True}
         return {"error": "站点不存在"}
