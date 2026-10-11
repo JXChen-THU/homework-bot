@@ -7,9 +7,6 @@ sites:
     name: 清华 OJ
     type: thuoj
     url: https://ai.tuoj.thusaac.com/course/8/home
-    login_url: https://ai.tuoj.thusaac.com/course/8/home
-    username: ""
-    password: ""
     session: thu_session.json
 
   - id: tyche
@@ -19,16 +16,12 @@ sites:
     gid: 42
     basic_user: ""
     basic_pass: ""
-    login_url: http://166.111.236.164:6080/tyche
     session: tyche_session.json
 
   - id: learn
     name: 网络学堂
     type: learn
     base_url: https://learn.tsinghua.edu.cn
-    login_url: https://learn.tsinghua.edu.cn/f/login
-    username: ""
-    password: ""
     session: learn_session.json
 
   - id: yuketang
@@ -41,14 +34,10 @@ sites:
     name: 数你最灵
     type: smartestu
     base_url: https://smartestu.cn/
-    username: ""
-    password: ""
     session: smartestu_session.json
 
   - id: unipus
     name: U校园
     type: unipus
     base_url: https://uai.unipus.cn/portal
-    username: ""
-    password: ""
     session: unipus_session.json

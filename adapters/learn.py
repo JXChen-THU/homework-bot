@@ -2,7 +2,6 @@ import os
 import json
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
-from .auth import login_with_credentials
 
 
 def _get_courses(page):
@@ -198,19 +197,28 @@ def fetch_homeworks(site, base_dir):
         return all_homeworks
 
 
-def _login_success(page, _site):
-    url = page.url.lower()
-    if any(part in url for part in ("login", "sso", "auth")):
-        return False
-    try:
-        return "wlxt" in page.content() or "课程" in page.content()
-    except Exception:
-        return False
+def login(site, base_dir):
+    """弹窗让用户登录"""
+    session = os.path.join(base_dir, site["session"])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.goto(site["base_url"])
 
+        logged_in = False
+        for _ in range(100):
+            page.wait_for_timeout(3000)
+            try:
+                u = page.url.lower()
+                if "login" not in u and "sso" not in u and "auth" not in u:
+                    if "wlxt" in page.content() or "课程" in page.content():
+                        logged_in = True
+                        break
+            except Exception:
+                pass
 
-def login(site, base_dir, manual_required=None):
-    """自动填写账号密码；统一身份认证的额外验证由用户完成。"""
-    return login_with_credentials(
-        site, base_dir, _login_success,
-        manual_required or (lambda _name, _auto: None),
-    )
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in

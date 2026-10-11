@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
-from .auth import login_with_credentials
 
 
 def _ts_to_local(ms):
@@ -90,14 +89,31 @@ def fetch_homeworks(site, base_dir):
         return _extract(data, site)
 
 
-def _login_success(page, _site):
-    data = _fetch_exams(page)
-    return isinstance(data, dict) and bool(data.get("success"))
+def login(site, base_dir):
+    """弹窗让用户手动登录，成功后保存会话。
+    通过调考试接口判断是否真正登录成功。"""
+    session = os.path.join(base_dir, site["session"])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.goto(site["base_url"])
 
+        logged_in = False
+        # 最多等 10 分钟
+        for _ in range(200):
+            page.wait_for_timeout(3000)
+            try:
+                data = _fetch_exams(page)
+                # 接口返回 success=true 才认为登录成功
+                if isinstance(data, dict) and data.get("success"):
+                    page.wait_for_timeout(3000)
+                    logged_in = True
+                    break
+            except Exception:
+                pass
 
-def login(site, base_dir, manual_required=None):
-    """自动填写 Unipus 账号密码，遇到二次验证时保留浏览器供用户处理。"""
-    return login_with_credentials(
-        site, base_dir, _login_success,
-        manual_required or (lambda _name, _auto: None),
-    )
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in

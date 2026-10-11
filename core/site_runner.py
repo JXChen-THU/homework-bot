@@ -137,12 +137,12 @@ def fetch_all():
     return homeworks, errors, need_login
 
 
-def login_site(site_id, manual_required=None):
-    """触发某站点的自动登录及必要的手动验证流程。"""
+def login_site(site_id):
+    """触发某站点的登录流程，返回 True/False"""
     site = get_site(site_id)
     if not site:
         return False
     adapter = REGISTRY.get(site.get("type"))
     if not adapter:
         return False
-    return adapter.login(site, DATA_DIR, manual_required=manual_required)
+    return adapter.login(site, DATA_DIR)

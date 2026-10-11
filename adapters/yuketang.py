@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
-from .auth import login_with_credentials
 
 
 def _ts_to_str(ts):
@@ -134,16 +133,28 @@ def fetch_homeworks(site, base_dir):
         return all_homeworks
 
 
-def _login_success(page, _site):
-    if "login" in page.url.lower():
-        return False
-    return bool(page.query_selector("[class*='course'], [class*='Course']"))
+def login(site, base_dir):
+    """弹窗让用户扫码登录"""
+    session = os.path.join(base_dir, site["session"])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.goto(site["base_url"])
 
+        logged_in = False
+        # 扫码可能要挺久，最多等 10 分钟
+        for _ in range(200):
+            page.wait_for_timeout(3000)
+            try:
+                if "login" not in page.url.lower():
+                    if page.query_selector("[class*='course'], [class*='Course']"):
+                        logged_in = True
+                        break
+            except Exception:
+                pass
 
-def login(site, base_dir, manual_required=None):
-    """雨课堂使用扫码登录，保持浏览器打开供用户扫码。"""
-    return login_with_credentials(
-        site, base_dir, _login_success,
-        manual_required or (lambda _name, _auto: None),
-        manual_only=True,
-    )
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in

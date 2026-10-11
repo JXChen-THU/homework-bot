@@ -3,7 +3,6 @@ import re
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
-from .auth import login_with_credentials
 
 
 # 匹配形如 "2026-10-09 23:59:00" 的日期
@@ -55,13 +54,7 @@ def _is_logged_in(page, site):
     u = page.url.lower()
     if "login" in u or "sso" in u or "auth" in u:
         return False
-    if _extract(page, site):
-        return True
-    try:
-        body = page.locator("body").inner_text().lower()
-        return "logout" in body or "退出登录" in body or "退出" in body
-    except Exception:
-        return False
+    return len(_extract(page, site)) > 0
 
 
 def fetch_homeworks(site, base_dir):
@@ -87,9 +80,27 @@ def fetch_homeworks(site, base_dir):
         return items
 
 
-def login(site, base_dir, manual_required=None):
-    """自动填写账号密码；需要人工验证时保持登录窗口打开。"""
-    return login_with_credentials(
-        site, base_dir, _is_logged_in,
-        manual_required or (lambda _name, _auto: None),
-    )
+def login(site, base_dir):
+    """弹窗让用户手动登录，成功后保存会话"""
+    session = os.path.join(base_dir, site["session"])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context()
+        page = ctx.new_page()
+        page.goto(site["url"])
+
+        logged_in = False
+        # 最多等 5 分钟（100 次 × 3 秒）
+        for _ in range(100):
+            page.wait_for_timeout(3000)
+            try:
+                if _is_logged_in(page, site):
+                    logged_in = True
+                    break
+            except Exception:
+                pass
+
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in

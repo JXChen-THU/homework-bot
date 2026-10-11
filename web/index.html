@@ -87,30 +87,21 @@
   </div>
 </div>
 
-<!-- ========== 手动登录提示 ========== -->
-<div class="modal-bg" id="manual-login-bg">
-  <div class="modal">
-    <h2 id="manual-login-title">需要手动登录</h2>
-    <p id="manual-login-message"></p>
-    <div class="modal-actions">
-      <button class="ok" id="manual-login-close">知道了</button>
-    </div>
-  </div>
-</div>
-
-<!-- ========== 凭据弹窗 ========== -->
+<!-- ========== 弹窗 3：填账号密码 ========== -->
 <div class="modal-bg" id="cred-bg">
   <div class="modal">
     <h2>填写账号密码</h2>
     <div class="error" id="cred-error"></div>
-    <div id="cred-desc" class="login-note"></div>
+    <div style="font-size:13px;color:#7f8c8d;margin-bottom:14px;">
+      这是打开 Tyche 网站时浏览器弹出的第一个登录框，不是网站内部的账号密码。
+    </div>
     <div class="field">
       <label>账号</label>
-      <input id="cred-user" autocomplete="username" placeholder="用户名、学号或手机号" />
+      <input id="cred-user" placeholder="填写你的账号" />
     </div>
     <div class="field">
       <label>密码</label>
-      <input id="cred-pass" type="password" autocomplete="current-password" placeholder="登录密码" />
+      <input id="cred-pass" type="password" placeholder="打开网站弹窗的密码" />
     </div>
     <div class="modal-actions">
       <button class="cancel" id="cred-cancel">取消</button>

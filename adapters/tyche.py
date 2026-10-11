@@ -1,13 +1,14 @@
 import os
 from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
-from .auth import login_with_credentials, site_credentials
 
 
 def _creds(site):
     """从站点配置里取出 Basic Auth 的账号密码"""
-    username, password = site_credentials(site)
-    return {"username": username, "password": password}
+    return {
+        "username": site.get("basic_user", ""),
+        "password": site.get("basic_pass", ""),
+    }
 
 
 def _fetch_group(page, gid):
@@ -80,14 +81,27 @@ def fetch_homeworks(site, base_dir):
         return _extract(data, site)
 
 
-def _login_success(page, site):
-    return _is_success(_fetch_group(page, site["gid"]))
+def login(site, base_dir):
+    """弹窗让用户登录"""
+    session = os.path.join(base_dir, site["session"])
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context(http_credentials=_creds(site))
+        page = ctx.new_page()
+        page.goto(site["base_url"])
 
+        logged_in = False
+        for _ in range(100):
+            page.wait_for_timeout(3000)
+            try:
+                data = _fetch_group(page, site["gid"])
+                if _is_success(data):
+                    logged_in = True
+                    break
+            except Exception:
+                pass
 
-def login(site, base_dir, manual_required=None):
-    """自动处理 Basic Auth，随后尝试账号登录，必要时保留窗口供手动完成。"""
-    return login_with_credentials(
-        site, base_dir, _login_success,
-        manual_required or (lambda _name, _auto: None),
-        use_http_auth=True,
-    )
+        if logged_in:
+            ctx.storage_state(path=session)
+        browser.close()
+        return logged_in
