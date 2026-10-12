@@ -67,6 +67,20 @@ h1 { font-size: 22px; font-weight: 600; }
   margin-right: 8px;
 }
 .banner button:hover { background: #3c58a8; }
+.banner button:disabled { background: #9aa6c4; cursor: default; }
+
+/* 需要登录的每一行：按钮 + 原因说明 */
+.banner .login-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.banner .login-row button { margin-top: 0; }
+.banner .login-hint {
+  font-size: 12px;
+  opacity: 0.75;
+}
 
 /* ========== 标签页 ========== */
 .tabs {
@@ -333,6 +347,8 @@ h1 { font-size: 22px; font-weight: 600; }
   background: #fff3cd;
   color: #8a6d3b;
 }
+/* 密文解不开（换了电脑/Windows 账户）时需要更醒目的提示 */
+.site-row .cred.broken { background: #fdecea; color: #c0392b; }
 .site-row .spacer { flex: 1; }
 .site-row button {
   padding: 5px 12px;

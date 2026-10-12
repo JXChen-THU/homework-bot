@@ -1,6 +1,5 @@
-import os
+﻿import os
 from datetime import datetime
-from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
 
 
@@ -61,27 +60,60 @@ def _extract(data, site):
     return result
 
 
+def is_logged_in(page, site):
+    """已登录判定：考试接口返回 success 才算真正登录。"""
+    try:
+        data = _fetch_exams(page)
+    except Exception:
+        return False
+    return isinstance(data, dict) and bool(data.get("success"))
+
+
+# 静默登录配置
+# 实测流程：首页点「登 录」→ 跳 /portal/sso/login → 填手机号 + 密码
+#           → 勾「记住我」和用户协议 → 提交 → 回门户，考试接口可用。
+LOGIN = {
+    "pre_click": ["button[class*=loginBtn]", "button:has-text('登 录')",
+                  "button:has-text('登录')"],
+    "after_pre_click_wait": 6000,
+    # 万一点击没有跳转，直接打开登录页
+    "fallback_url": "https://uai.unipus.cn/portal/sso/login",
+    "username": ["#username", "input[placeholder*='手机号']"],
+    "password": ["#password", "input[type=password]"],
+    "agree": ["#agreement"],
+    "remember": ["#remember"],
+    "submit": ["button:has-text('登 录')", "button[type=submit]", "button:has-text('登录')"],
+    "after_goto_wait": 4000,
+}
+
+
 def fetch_homeworks(site, base_dir):
     """静默抓取：加载会话 → 打开页面 → 调接口"""
     session = os.path.join(base_dir, site["session"])
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, channel="msedge")
+    from .auth import browser_session, wait_for_ready
+
+    with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         page = ctx.new_page()
-        page.goto(site["base_url"])
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(3000)
+        page.goto(site["base_url"], wait_until="domcontentloaded")
+
+        # 轮询考试接口：能返回 success 就立刻继续（不等 networkidle）
+        wait_for_ready(
+            page,
+            lambda pg: (lambda d: isinstance(d, dict) and bool(d.get("success")))(
+                _fetch_exams(pg)),
+            timeout_ms=15000, what="U校园考试接口")
 
         # 检查是否被踢回登录页
         if "login" in page.url.lower() or "sso" in page.url.lower():
-            browser.close()
+            ctx.close()
             raise LoginRequiredError(site["id"], site["name"])
 
         data = _fetch_exams(page)
-        browser.close()
+        ctx.close()
 
         if not isinstance(data, dict) or not data.get("success"):
             raise LoginRequiredError(site["id"], site["name"])
@@ -89,31 +121,10 @@ def fetch_homeworks(site, base_dir):
         return _extract(data, site)
 
 
-def login(site, base_dir):
-    """弹窗让用户手动登录，成功后保存会话。
-    通过调考试接口判断是否真正登录成功。"""
-    session = os.path.join(base_dir, site["session"])
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="msedge")
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(site["base_url"])
-
-        logged_in = False
-        # 最多等 10 分钟
-        for _ in range(200):
-            page.wait_for_timeout(3000)
-            try:
-                data = _fetch_exams(page)
-                # 接口返回 success=true 才认为登录成功
-                if isinstance(data, dict) and data.get("success"):
-                    page.wait_for_timeout(3000)
-                    logged_in = True
-                    break
-            except Exception:
-                pass
-
-        if logged_in:
-            ctx.storage_state(path=session)
-        browser.close()
-        return logged_in
+def login(site, base_dir, manual=True):
+    """登录。manual=False 时无头静默登录（手机号 + 密码）。"""
+    from .auth import silent_login, interactive_login
+    if manual:
+        return interactive_login(site, base_dir)
+    ok, _reason = silent_login(site, base_dir)
+    return ok

@@ -92,16 +92,29 @@
   <div class="modal">
     <h2>填写账号密码</h2>
     <div class="error" id="cred-error"></div>
-    <div style="font-size:13px;color:#7f8c8d;margin-bottom:14px;">
-      这是打开 Tyche 网站时浏览器弹出的第一个登录框，不是网站内部的账号密码。
+    <div style="font-size:13px;color:#7f8c8d;margin-bottom:14px;" id="cred-tip">
+      填好后，登录状态失效时程序会在后台自动重新登录，不需要你手动操作。
     </div>
+
+    <div class="field" id="cred-binding-wrap" style="display:none;">
+      <label>Basic Auth 账号（可选）</label>
+      <input id="cred-binding-user" placeholder="打开网站时浏览器弹窗的账号" />
+      <label style="margin-top:8px;">Basic Auth 密码（可选）</label>
+      <input id="cred-binding-pass" type="password" placeholder="打开网站时浏览器弹窗的密码" />
+    </div>
+
+    <div class="field" id="cred-school-wrap" style="display:none;">
+      <label>学校全名</label>
+      <input id="cred-school" placeholder="例如：XX大学" />
+    </div>
+
     <div class="field">
-      <label>账号</label>
+      <label id="cred-user-label">账号 / 学号</label>
       <input id="cred-user" placeholder="填写你的账号" />
     </div>
     <div class="field">
-      <label>密码</label>
-      <input id="cred-pass" type="password" placeholder="打开网站弹窗的密码" />
+      <label id="cred-pass-label">密码</label>
+      <input id="cred-pass" type="password" placeholder="填写你的密码" />
     </div>
     <div class="modal-actions">
       <button class="cancel" id="cred-cancel">取消</button>

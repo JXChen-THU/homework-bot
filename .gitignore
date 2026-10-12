@@ -36,3 +36,7 @@ __pycache__/
 *.pyc
 *_session.json
 *_courses.json
+
+# 本地侦察/测试脚本（会读取 sites.yaml，不入库）
+recon/
+recon-archive/

@@ -1,43 +1,72 @@
 # ============ 任务清单 - 站点配置 ============
 # 首次启动时，程序会自动把这个文件复制成 sites.yaml
 # 然后你可以编辑 sites.yaml，填入自己的账号密码
+#
+# 【静默登录】把 username / password 填上，会话过期后程序会自己后台重登，
+# 不需要你手动点「登录」。只有清华统一身份认证要求二次验证（企业微信/短信）
+# 时，程序才会弹出一次窗口让你输入验证码。
+#
+# 注意：password 建议用引号包起来，避免 # : 等字符被 YAML 误解析。
 
 sites:
   - id: thuoj
     name: 清华 OJ
     type: thuoj
     url: https://ai.tuoj.thusaac.com/course/8/home
+    username: ""
+    password: ""
     session: thu_session.json
+    enabled: true
 
   - id: tyche
     name: Tyche
     type: tyche
     base_url: http://166.111.236.164:6080/tyche
     gid: 42
+    # Basic Auth：打开站点时浏览器弹窗用的账号密码
     basic_user: ""
     basic_pass: ""
+    # 网站自身的登录账号密码（用于后台静默登录）
+    username: ""
+    password: ""
     session: tyche_session.json
+    enabled: true
 
   - id: learn
     name: 网络学堂
     type: learn
     base_url: https://learn.tsinghua.edu.cn
+    login_url: https://learn.tsinghua.edu.cn/f/login
+    username: ""
+    password: ""
     session: learn_session.json
+    enabled: true
 
   - id: yuketang
     name: 雨课堂
     type: yuketang
     base_url: https://pro.yuketang.cn/v2/web/index
+    # 雨课堂需要微信扫码，无法后台静默登录，保持手动登录
     session: yuketang_session.json
+    enabled: true
 
   - id: smartestu
     name: 数你最灵
     type: smartestu
     base_url: https://smartestu.cn/
+    # 数你最灵登录前必须先选学校，这里填你所在的学校全名
+    school: XX大学
+    username: ""
+    password: ""
     session: smartestu_session.json
+    enabled: true
 
   - id: unipus
     name: U校园
     type: unipus
     base_url: https://uai.unipus.cn/portal
+    login_url: https://uai.unipus.cn/portal/sso/login
+    username: ""
+    password: ""
     session: unipus_session.json
+    enabled: true

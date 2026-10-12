@@ -1,6 +1,5 @@
-import os
+﻿import os
 from datetime import datetime
-from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
 
 
@@ -100,6 +99,34 @@ def _extract_homeworks(data, site, course_map):
     return result
 
 
+def is_logged_in(page, site):
+    """已登录判定：/api/auth/session 能返回用户信息。"""
+    try:
+        data = _fetch_session(page)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    # 未登录时接口会返回 401/403 或空对象
+    if data.get("_http") or data.get("_err"):
+        return False
+    return bool(data.get("user"))
+
+
+# 静默登录配置
+# 数你最灵要求先选「学校」，再填学号/工号 + 密码。
+# 学校名放在 sites.yaml 的 school 字段里，不写死在代码中。
+LOGIN = {
+    "school_open": ["button:has-text('请选择学校')", "button:has-text('学校')"],
+    "school_search": ["input[placeholder*='搜索学校']"],
+    "school_pick": [],          # 留空：用 get_by_text 精确点击学校名
+    "username": ["#authField", "input[name=schoolUserLocalId]"],
+    "password": ["#password", "input[name=password]"],
+    "submit": ["button:has-text('继续')", "button[type=submit]"],
+    "after_goto_wait": 3500,
+}
+
+
 def fetch_homeworks(site, base_dir):
     """静默抓取：
     1. 加载会话，打开页面
@@ -110,63 +137,70 @@ def fetch_homeworks(site, base_dir):
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, channel="msedge")
+    from .auth import browser_session, wait_for_ready
+
+    cached = {}
+
+    def _ready(pg):
+        """页面能干活了：会话有效，**并且作业接口已经不再返回 409**。
+
+        实测页面刚加载完就调 queryHomeworks 会返回 409，
+        必须等它稳定下来。以作业接口为准比固定 sleep 更可靠。
+        """
+        if not is_logged_in(pg, site):
+            return False
+        data = _fetch_session(pg)
+        courses = _extract_courses(data)
+        if not courses:
+            return False
+        ids = [c["id"] for c in courses]
+        hw = _fetch_homeworks(pg, ids)
+        if isinstance(hw, dict) and hw.get("success"):
+            cached["session"] = data
+            cached["courses"] = courses
+            cached["homeworks"] = hw
+            return True
+        return False
+
+    with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         page = ctx.new_page()
-        page.goto(site["base_url"])
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
+        page.goto(site["base_url"], wait_until="domcontentloaded")
+
+        ready = wait_for_ready(page, _ready, timeout_ms=20000,
+                               interval_ms=500, what="数你最灵作业接口")
 
         # 1. 拿课程列表
-        sess_data = _fetch_session(page)
-        courses = _extract_courses(sess_data)
+        sess_data = cached.get("session") or _fetch_session(page)
+        courses = cached.get("courses") or _extract_courses(sess_data)
         if not courses:
-            browser.close()
+            ctx.close()
             raise LoginRequiredError(site["id"], site["name"])
 
         course_ids = [c["id"] for c in courses]
         course_map = {c["id"]: c["name"] for c in courses}
 
         # 2. 拿作业
-        data = _fetch_homeworks(page, course_ids)
-        browser.close()
+        data = cached.get("homeworks")
+        if data is None:
+            data = _fetch_homeworks(page, course_ids)
+        if not ready and not (isinstance(data, dict) and data.get("success")):
+            # 就绪轮询和这里都失败：再补一次机会，仍失败就当未登录处理
+            page.wait_for_timeout(2000)
+            data = _fetch_homeworks(page, course_ids)
+        ctx.close()
 
         return _extract_homeworks(data, site, course_map)
 
 
-def login(site, base_dir):
-    """弹窗让用户手动登录，成功后保存会话。
-    通过检测 cookie 变化判断登录成功，多等 5 秒让页面稳定。"""
-    session = os.path.join(base_dir, site["session"])
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="msedge")
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(site["base_url"])
+def login(site, base_dir, manual=True):
+    """登录。
 
-        # 记录初始 cookie
-        initial_cookies = set(
-            (c['name'], c['value']) for c in ctx.cookies()
-        )
-
-        logged_in = False
-        # 最多等 10 分钟
-        for _ in range(200):
-            page.wait_for_timeout(3000)
-            try:
-                current_cookies = set(
-                    (c['name'], c['value']) for c in ctx.cookies()
-                )
-                if current_cookies != initial_cookies:
-                    # cookie 变了 → 说明已登录，再等 5 秒
-                    page.wait_for_timeout(5000)
-                    logged_in = True
-                    break
-            except Exception:
-                pass
-
-        if logged_in:
-            ctx.storage_state(path=session)
-        browser.close()
-        return logged_in
+    manual=False 时无头静默登录（需要 sites.yaml 里配好 school 和账号密码）；
+    manual=True 时弹出可见窗口让用户手动登录。
+    """
+    from .auth import silent_login, interactive_login
+    if manual:
+        return interactive_login(site, base_dir)
+    ok, _reason = silent_login(site, base_dir)
+    return ok

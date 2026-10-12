@@ -103,7 +103,8 @@ def _extract_tasks(data, site, course_name=""):
 
 
 def fetch_homeworks(site, base_dir):
-    """静默抓取：先拿课程列表，再逐门课拿活动"""
+    """静默抓取：先拿课程列表，再逐门课拿活动。
+    雨课堂要微信扫码，没有会话时直接报需要登录，不浪费一次浏览器启动。"""
     session = os.path.join(base_dir, site["session"])
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])

@@ -84,6 +84,19 @@ def ensure_sites_yaml():
         print(f"[init] 已生成 {target}")
 
 
+def upgrade_credentials():
+    """启动时把 sites.yaml 里残留的明文账号密码加密。
+
+    历史配置文件（或用户手工写的明文）会在这一步自动变成密文，
+    用户不需要做任何操作。
+    """
+    try:
+        from core.site_runner import upgrade_plaintext_credentials
+        upgrade_plaintext_credentials()
+    except Exception as e:
+        print(f"[secrets] 加密升级跳过：{type(e).__name__}: {e}")
+
+
 # ============================================================
 # 浮窗布局
 # ============================================================
@@ -441,11 +454,12 @@ class Api:
 
     # ---------- 登录 ----------
     def login(self, site_id):
-        from core.site_runner import load_sites
-        for s in load_sites(include_disabled=True):
-            if s["id"] == site_id and s.get("type") == "tyche":
-                if not (s.get("basic_user") and s.get("basic_pass")):
-                    return {"ok": False, "error": "need_credentials"}
+        """用户点「登录」时调用。
+
+        login_site 会先试一次无头静默登录，不行再弹出可见窗口；
+        对于清华 SSO 这种要求二次验证的站点，可见窗口里的账号密码
+        已经自动填好，用户只需要输入验证码。
+        """
         ok = login_site(site_id)
         return {"ok": ok}
 
@@ -511,6 +525,7 @@ class Api:
     # ---------- 设置面板：站点管理 ----------
     def list_sites(self):
         from core.site_runner import load_sites, DATA_DIR as _DATA
+        from adapters.auth import _plain, has_credentials, credentials_broken
         sites = load_sites(include_disabled=True)
         result = []
         for s in sites:
@@ -518,40 +533,90 @@ class Api:
             has_session = False
             if sess:
                 has_session = os.path.exists(os.path.join(_DATA, sess))
-            has_cred = True
-            if s.get("type") == "tyche":
-                has_cred = bool(s.get("basic_user") and s.get("basic_pass"))
+            # 所有站点都支持「填账号密码 → 后台静默登录」，雨课堂除外（必须扫码）
+            stype = s.get("type")
             result.append({
                 "id": s["id"],
                 "name": s["name"],
-                "type": s["type"],
+                "type": stype,
                 "enabled": s.get("enabled", True),
                 "has_session": has_session,
-                "has_credentials": has_cred,
+                # 用解密后的值判断，密文解不开时视为「未填」
+                "has_credentials": has_credentials(s),
+                "credentials_broken": credentials_broken(s),
+                "needs_school": stype == "smartestu",
+                "school": s.get("school", ""),
+                # Tyche 还要一对 Basic Auth 账号密码（浏览器弹窗用）
+                # 用解密后的值判断，密文解不开时视为没填
+                "has_basic_auth": bool(_plain(s.get("basic_user"))
+                                       and _plain(s.get("basic_pass"))),
+                "supports_silent_login": stype != "yuketang",
             })
         return {"sites": result}
 
     def get_site_credentials(self, site_id):
+        """把站点账号密码解密后交给设置界面（空账号密码会清掉旧会话，故只回显当前值）。"""
         from core.site_runner import load_sites
+        from adapters.auth import _plain
         for s in load_sites(include_disabled=True):
             if s["id"] == site_id:
+                broken = False
+                try:
+                    from adapters.auth import credentials_broken
+                    broken = credentials_broken(s)
+                except Exception:
+                    pass
                 return {
                     "ok": True,
-                    "basic_user": s.get("basic_user", ""),
-                    "basic_pass": s.get("basic_pass", ""),
+                    "username": _plain(s.get("username", "")),
+                    "password": _plain(s.get("password", "")),
+                    "school": s.get("school", ""),
+                    "basic_user": _plain(s.get("basic_user", "")),
+                    "basic_pass": _plain(s.get("basic_pass", "")),
+                    "type": s.get("type", ""),
+                    # 密文解不开（换了电脑/Windows 账户）时提醒用户重填
+                    "undecryptable": broken,
                 }
         return {"error": "站点不存在"}
 
-    def save_site_credentials(self, site_id, basic_user, basic_pass):
+    def save_site_credentials(self, site_id, username, password,
+                              school=None, basic_user=None, basic_pass=None):
+        """保存站点账号密码（加密后写入 sites.yaml）。"""
         from core.site_runner import load_sites, save_sites
+        from core.secrets import encrypt
         sites = load_sites(include_disabled=True)
         for s in sites:
             if s["id"] == site_id:
-                s["basic_user"] = (basic_user or "").strip()
-                s["basic_pass"] = (basic_pass or "").strip()
+                s["username"] = encrypt((username or "").strip())
+                s["password"] = encrypt((password or "").strip())
+                if school is not None:
+                    s["school"] = (school or "").strip()
+                if basic_user is not None:
+                    s["basic_user"] = encrypt((basic_user or "").strip())
+                if basic_pass is not None:
+                    s["basic_pass"] = encrypt((basic_pass or "").strip())
                 save_sites(sites)
+                # 账号密码变了，清掉旧会话，下次刷新会用新账号重新登录
+                self._wipe_session_files(s["id"], s.get("session"))
                 return {"ok": True}
         return {"error": "站点不存在"}
+
+    @staticmethod
+    def _wipe_session_files(site_id, session_name):
+        from core.site_runner import DATA_DIR as _DATA
+        if session_name:
+            p = os.path.join(_DATA, session_name)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+        cache = os.path.join(_DATA, f"{site_id}_courses.json")
+        if os.path.exists(cache):
+            try:
+                os.remove(cache)
+            except Exception:
+                pass
 
     def apply_sites_changes(self, changes):
         from core.site_runner import load_sites, save_sites, DATA_DIR as _DATA
@@ -563,14 +628,7 @@ class Api:
             s = by_id.get(sid)
             if not s:
                 return
-            sess = s.get("session")
-            if sess:
-                p = os.path.join(_DATA, sess)
-                if os.path.exists(p):
-                    os.remove(p)
-            cache = os.path.join(_DATA, f"{sid}_courses.json")
-            if os.path.exists(cache):
-                os.remove(cache)
+            self._wipe_session_files(sid, s.get("session"))
 
         for ch in changes:
             sid = ch.get("id")
@@ -653,6 +711,8 @@ def main():
     global _main_window, _alert_window, _panel_window, _screen_w
 
     ensure_sites_yaml()
+    # 把残留的明文账号密码加密（老的 sites.yaml 会自动升级，用户无感）
+    upgrade_credentials()
 
     api = Api()
 

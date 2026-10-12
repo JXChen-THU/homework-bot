@@ -1,6 +1,5 @@
-import os
+﻿import os
 import json
-from playwright.sync_api import sync_playwright
 from .base import Homework, LoginRequiredError
 
 
@@ -129,6 +128,77 @@ def _extract(data, site, course_name=""):
     return result
 
 
+def _on_logged_in_page(page):
+    """判断当前页面是不是网络学堂已登录后的页面。
+
+    判定顺序很关键：必须**先**确认没有停在统一身份认证页面，
+    否则 SSO 页面里出现的「课程」字样会造成误判。
+    """
+    try:
+        url = page.url.lower()
+    except Exception:
+        return False
+    if "id.tsinghua.edu.cn" in url:
+        return False
+    if any(k in url for k in ("/f/login", "login", "sso", "auth")):
+        return False
+    if "learn.tsinghua.edu.cn" not in url:
+        return False
+    try:
+        content = page.content()
+    except Exception:
+        return False
+    return ("wlxt" in content) or ("课程" in content)
+
+
+def is_logged_in(page, site):
+    """给静默登录用的校验函数：已登录网络学堂才算 True。"""
+    return _on_logged_in_page(page)
+
+
+# 静默登录配置
+# 网络学堂自己没有账号密码表单，点「登录」后跳到清华统一身份认证（id.tsinghua.edu.cn），
+# 那里才是 #i_user / #i_pass。注意：清华 SSO 对陌生浏览器会要求二次验证（企业微信/短信），
+# 因此 mfa_markers 只匹配二次验证页面上的真实字样，避免误判。
+LOGIN = {
+    "pre_click": ["#loginButtonId", "input[value=登录]"],
+    "after_pre_click_wait": 4000,
+    "username": ["#i_user", "input[name=i_user]", "input[name=username]"],
+    "password": ["#i_pass", "input[name=i_pass]", "input[type=password]"],
+    "submit": ["a:has-text('登录')", "#login", "button[type=submit]",
+               "input[type=submit]", "button:has-text('登录')"],
+    "after_goto_wait": 2500,
+    # 清华 SSO 对无头浏览器**必定**要求二次验证（实测稳定复现），
+    # 而真实窗口会被直接放行。所以后台重登时跳过无头那一档，
+    # 直接开屏幕外真实窗口：少跑一次注定失败的登录，也少一次多余的 SSO 交互。
+    "skip_headless": True,
+    # 清华 SSO 的二次验证页面（人工兜底时会停在这里）
+    "mfa_selectors": [".second-verify", "#secondVerify", ".verify-way", ".auth-way"],
+    "mfa_phrases": ["请选择以下方式之一获取验证码", "验证码到您的微信",
+                    "二次验证", "二次认证", "本次登录需要进行二次验证"],
+}
+
+
+def _csrf_from_ctx(ctx):
+    """从 cookie 里拿 CSRF token（网络学堂后续接口都要带）。"""
+    for c in ctx.cookies():
+        n = c["name"].lower()
+        if "csrf" in n or "xsrf" in n:
+            return c["value"]
+    return ""
+
+
+def _ready(page):
+    """页面能干活了：已登录，并且 CSRF cookie 已经下来。
+
+    实测这两样在 domcontentloaded 之后 1.3 秒左右就绪，
+    比等 networkidle（还要再等 4 秒）快得多。
+    """
+    if not _on_logged_in_page(page):
+        return False
+    return bool(_csrf_from_ctx(page.context))
+
+
 def fetch_homeworks(site, base_dir):
     """静默抓取所有课程的作业"""
     session = os.path.join(base_dir, site["session"])
@@ -138,17 +208,20 @@ def fetch_homeworks(site, base_dir):
     # 课程列表缓存（避免每次扫描）
     cache_file = os.path.join(base_dir, f"{site['id']}_courses.json")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, channel="msedge")
+    from .auth import browser_session, wait_for_ready
+
+    with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         page = ctx.new_page()
-        page.goto(site["base_url"])
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
+        page.goto(site["base_url"], wait_until="domcontentloaded")
+        # 等到登录态 + CSRF 就绪就继续，不等 networkidle
+        if not wait_for_ready(page, _ready, timeout_ms=15000,
+                              what="网络学堂页面就绪"):
+            page.wait_for_timeout(3000)
 
         # 判断是否登录
-        if "login" in page.url.lower() or "sso" in page.url.lower():
-            browser.close()
+        if not _on_logged_in_page(page):
+            ctx.close()
             raise LoginRequiredError(site["id"], site["name"])
 
         # 优先用配置 -> 其次缓存 -> 最后现场扫描
@@ -170,16 +243,11 @@ def fetch_homeworks(site, base_dir):
                     json.dump(courses, f, ensure_ascii=False, indent=2)
 
         if not courses:
-            browser.close()
+            ctx.close()
             return []
 
         # 从 cookie 里拿 CSRF token
-        csrf = ''
-        for c in ctx.cookies():
-            n = c['name'].lower()
-            if 'csrf' in n or 'xsrf' in n:
-                csrf = c['value']
-                break
+        csrf = _csrf_from_ctx(ctx)
 
         # 逐门课抓作业
         all_homeworks = []
@@ -193,32 +261,18 @@ def fetch_homeworks(site, base_dir):
             if parsed:
                 all_homeworks.extend(_extract(parsed, site, c.get("name", "")))
 
-        browser.close()
+        ctx.close()
         return all_homeworks
 
 
-def login(site, base_dir):
-    """弹窗让用户登录"""
-    session = os.path.join(base_dir, site["session"])
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="msedge")
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(site["base_url"])
+def login(site, base_dir, manual=True):
+    """登录。
 
-        logged_in = False
-        for _ in range(100):
-            page.wait_for_timeout(3000)
-            try:
-                u = page.url.lower()
-                if "login" not in u and "sso" not in u and "auth" not in u:
-                    if "wlxt" in page.content() or "课程" in page.content():
-                        logged_in = True
-                        break
-            except Exception:
-                pass
-
-        if logged_in:
-            ctx.storage_state(path=session)
-        browser.close()
-        return logged_in
+    manual=False 时走无头静默登录；若清华 SSO 要求二次验证，
+    静默登录会返回失败，由上层决定是否弹出窗口让用户过验证。
+    """
+    from .auth import silent_login, interactive_login
+    if manual:
+        return interactive_login(site, base_dir)
+    ok, _reason = silent_login(site, base_dir)
+    return ok

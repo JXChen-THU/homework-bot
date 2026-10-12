@@ -1,14 +1,15 @@
-import os
-from playwright.sync_api import sync_playwright
+﻿import os
 from .base import Homework, LoginRequiredError
 
 
 def _creds(site):
-    """从站点配置里取出 Basic Auth 的账号密码"""
-    return {
-        "username": site.get("basic_user", ""),
-        "password": site.get("basic_pass", ""),
-    }
+    """从站点配置里取出 Basic Auth 的账号密码。
+
+    注意要走 auth 的解密逻辑：sites.yaml 里存的是密文，
+    直接读字段会把 "enc:v1:..." 当账号发出去，服务器回 401。
+    """
+    from .auth import http_credentials
+    return http_credentials(site) or {"username": "", "password": ""}
 
 
 def _fetch_group(page, gid):
@@ -54,26 +55,52 @@ def _extract(data, site):
     return result
 
 
+def is_logged_in(page, site):
+    """判断当前浏览器上下文是否已登录 Tyche。
+    登录成功时 base_url 会自动跳到 Group.html，且 ShowGroup 接口返回 success。"""
+    try:
+        if "showgroup" in page.url.lower() or "group.html" in page.url.lower():
+            return _is_success(_fetch_group(page, site["gid"]))
+        return _is_success(_fetch_group(page, site["gid"]))
+    except Exception:
+        return False
+
+
+# 静默登录配置：Tyche 自带用户名/密码表单，可直接后台登录
+LOGIN = {
+    "username": ["#username", "input[name=username]"],
+    "password": ["#password", "input[name=password]"],
+    "submit": ["button.submit", "button:has-text('登录')", "input[type=submit]"],
+    "after_goto_wait": 2500,
+}
+
+
 def fetch_homeworks(site, base_dir):
     """静默抓取"""
     session = os.path.join(base_dir, site["session"])
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, channel="msedge")
+    from .auth import browser_session, wait_for_ready
+
+    with browser_session() as browser:
         # 关键：http_credentials 自动填 Basic Auth 弹窗
         ctx = browser.new_context(
             storage_state=session,
             http_credentials=_creds(site),
         )
         page = ctx.new_page()
-        page.goto(site["base_url"])
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(2000)
+        page.goto(site["base_url"], wait_until="domcontentloaded")
 
+        # 轮询 ShowGroup 接口：一旦能拿到数据就立刻继续，
+        # 比等 networkidle 快，也顺便完成了登录判定。
+        data = {}
+        wait_for_ready(
+            page,
+            lambda pg: _is_success(_fetch_group(pg, site["gid"])),
+            timeout_ms=15000, what="Tyche 作业接口")
         data = _fetch_group(page, site["gid"])
-        browser.close()
+        ctx.close()
 
         if not _is_success(data):
             raise LoginRequiredError(site["id"], site["name"])
@@ -81,27 +108,14 @@ def fetch_homeworks(site, base_dir):
         return _extract(data, site)
 
 
-def login(site, base_dir):
-    """弹窗让用户登录"""
-    session = os.path.join(base_dir, site["session"])
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, channel="msedge")
-        ctx = browser.new_context(http_credentials=_creds(site))
-        page = ctx.new_page()
-        page.goto(site["base_url"])
+def login(site, base_dir, manual=True):
+    """登录。
 
-        logged_in = False
-        for _ in range(100):
-            page.wait_for_timeout(3000)
-            try:
-                data = _fetch_group(page, site["gid"])
-                if _is_success(data):
-                    logged_in = True
-                    break
-            except Exception:
-                pass
-
-        if logged_in:
-            ctx.storage_state(path=session)
-        browser.close()
-        return logged_in
+    manual=False 时走无头静默登录（有账号密码就直接后台登录）；
+    manual=True 时弹出可见窗口，等待用户手动完成。
+    """
+    from .auth import silent_login, interactive_login
+    if manual:
+        return interactive_login(site, base_dir)
+    ok, _reason = silent_login(site, base_dir)
+    return ok

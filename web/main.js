@@ -42,13 +42,37 @@ function fmtRemaining(ms) {
 // ============================================================
 // 顶部提示条
 // ============================================================
+// 每个站点为什么需要登录，以及点了「登录」之后会发生什么
+const LOGIN_HINTS = {
+  no_credentials: {
+    text: '未填账号密码，无法自动登录',
+    btn: '登录',
+  },
+  qr_code: {
+    text: '需要微信扫码，无法自动登录',
+    btn: '扫码登录',
+  },
+  manual_required: {
+    text: '自动登录已尝试，需要你确认一次验证码',
+    btn: '去验证',
+  },
+  default: {
+    text: '登录状态已失效',
+    btn: '登录',
+  },
+};
+
 function renderBanners(errors, needLogin) {
   let html = '';
 
   if (needLogin && needLogin.length) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
     needLogin.forEach(s => {
-      html += `<button data-login-site="${escapeHtml(s.site_id)}">登录 ${escapeHtml(s.site_name)}</button>`;
+      const hint = LOGIN_HINTS[s.reason] || LOGIN_HINTS.default;
+      html += '<div class="login-row">'
+        + `<button data-login-site="${escapeHtml(s.site_id)}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
+        + `<span class="login-hint">${hint.text}</span>`
+        + '</div>';
     });
     html += '</div>';
   }
@@ -68,7 +92,7 @@ function renderBanners(errors, needLogin) {
       const siteId = btn.dataset.loginSite;
       btn.disabled = true;
       const originalText = btn.textContent;
-      btn.textContent = '请在弹出的浏览器里登录...';
+      btn.textContent = '正在打开登录窗口...';
 
       const r = await window.pywebview.api.login(siteId);
 
@@ -321,8 +345,14 @@ function renderSites() {
 
     let credBadge = '';
     let credBtn = '';
-    if (s.type === 'tyche') {
-      if (!s.has_credentials) credBadge = '<span class="cred">未填账号密码</span>';
+    // 雨课堂靠微信扫码，不需要账号密码；其余站点都支持「填账号密码 → 后台静默登录」
+    if (s.type !== 'yuketang') {
+      if (s.credentials_broken) {
+        // 换了电脑或 Windows 账户，密文解不开
+        credBadge = '<span class="cred broken">密码需重填</span>';
+      } else if (!s.has_credentials) {
+        credBadge = '<span class="cred">未填账号密码</span>';
+      }
       credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填账号密码</button>`;
     }
 
@@ -412,13 +442,47 @@ let credSiteId = '';
 async function openCredDialog(siteId) {
   credSiteId = siteId;
   credError.textContent = '';
+  const schoolWrap = document.getElementById('cred-school-wrap');
+  const bindingWrap = document.getElementById('cred-binding-wrap');
+
   document.getElementById('cred-user').value = '';
   document.getElementById('cred-pass').value = '';
+  document.getElementById('cred-school').value = '';
+  document.getElementById('cred-binding-user').value = '';
+  document.getElementById('cred-binding-pass').value = '';
+  schoolWrap.style.display = 'none';
+  bindingWrap.style.display = 'none';
+
+  // 先从站点列表里拿类型信息，决定显示哪些字段
+  const info = (sitesFullInfo || []).find(x => x.id === siteId) || {};
+  if (info.needs_school) schoolWrap.style.display = '';
+  if (info.type === 'tyche') bindingWrap.style.display = '';
+
   const r = await window.pywebview.api.get_site_credentials(siteId);
   if (r && r.ok) {
-    document.getElementById('cred-user').value = r.basic_user || '';
-    document.getElementById('cred-pass').value = r.basic_pass || '';
+    document.getElementById('cred-user').value = r.username || '';
+    document.getElementById('cred-pass').value = r.password || '';
+    document.getElementById('cred-school').value = r.school || '';
+    document.getElementById('cred-binding-user').value = r.basic_user || '';
+    document.getElementById('cred-binding-pass').value = r.basic_pass || '';
+    if (r.undecryptable) {
+      credError.textContent =
+        '已保存的账号密码在当前电脑/Windows 账户下无法解密，请重新填写。';
+    }
   }
+
+  // 不同站点的账号叫法不一样
+  const labels = {
+    thuoj: ['学号', '清华账号密码'],
+    learn: ['学号', '清华账号密码'],
+    smartestu: ['学号 / 工号', '密码'],
+    unipus: ['手机号 / 邮箱', '密码'],
+    tyche: ['网站账号', '网站密码'],
+  };
+  const lb = labels[info.type] || ['账号', '密码'];
+  document.getElementById('cred-user-label').textContent = lb[0];
+  document.getElementById('cred-pass-label').textContent = lb[1];
+
   credBg.classList.add('open');
   setTimeout(() => document.getElementById('cred-user').focus(), 50);
 }
@@ -433,9 +497,16 @@ credBg.addEventListener('click', (e) => {
 document.getElementById('cred-ok').addEventListener('click', async () => {
   const u = document.getElementById('cred-user').value.trim();
   const p = document.getElementById('cred-pass').value;
+  const school = document.getElementById('cred-school').value.trim();
+  const bu = document.getElementById('cred-binding-user').value.trim();
+  const bp = document.getElementById('cred-binding-pass').value;
   if (!u) { credError.textContent = '请填写账号'; return; }
   if (!p) { credError.textContent = '请填写密码'; return; }
-  const r = await window.pywebview.api.save_site_credentials(credSiteId, u, p);
+  if (document.getElementById('cred-school-wrap').style.display !== 'none' && !school) {
+    credError.textContent = '请填写学校全名';
+    return;
+  }
+  const r = await window.pywebview.api.save_site_credentials(credSiteId, u, p, school, bu, bp);
   if (r.error) {
     credError.textContent = r.error;
     return;
