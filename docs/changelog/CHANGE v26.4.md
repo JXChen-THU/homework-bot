@@ -395,3 +395,258 @@ pywebview 会把 Python 异常变成 rejected promise，于是按钮会
   已确认这不是「可见性」问题，而是它不接受无头浏览器。屏幕外窗口方案覆盖了绝大多数情况。
 - `adapters/yuketang.py` 尚未统一到 `browser_session()` 辅助函数
   （它只支持扫码，本次未涉及）。不影响功能。
+
+---
+
+## 🔧 修补：三处前端「静默吞掉失败」（v26.4 补丁）
+
+这一批都不是崩溃，而是**失败被吞掉、界面报出与实际相反的结果**。
+共同特征：后端用「正常返回值」表达失败（`{"error": ...}`）而不是抛异常，
+前端的 `try/catch` 接不到，于是既不报错也不提示。
+
+### 1. 数据目录回退提示永远不显示（`Work\web\main.js`）
+
+`core/paths.py` 的 `startup_messages()` 在程序目录不可写时会产出一段中文说明
+（含回退到 `%LOCALAPPDATA%\HomeworkTasks` 的完整路径），
+`core/controller.py` 的 `get_homeworks()` 也已把它放在返回值的 `startup` 键里。
+但前端 `load()` 只读 `items` / `errors` / `need_login`，`startup` 无人消费，
+也没有任何其他出口。
+
+**用户可见后果**：把程序解压到 `Program Files`、`C:\` 根等受保护位置时，
+程序静默改用 `%LOCALAPPDATA%` 存配置。用户在原目录找不到 `sites.yaml`，
+表现为「站点全丢、全部要求重新登录、账号密码要重填」，却完全不知道
+是目录不可写导致的。
+
+**修复**：`renderBanners()` 增加第三个参数并渲染 `startup`（warn 样式，
+数据目录路径用等宽字体单独一行），`load()` 传入 `res.startup || []`。
+同时修正了 `load()` 上方那条已经过期的注释（它仍写着「只返回三个键」）。
+
+### 2. 站点设置写盘失败却显示「✓ 已应用」（`Work\web\main.js`）
+
+`apply_sites_changes()` 写 `sites.yaml` 失败时返回 `{"error": ...}`，
+前端「应用」按钮的回调**连返回值都没有接收**，无条件显示绿色「✓ 已应用」。
+
+**用户可见后果**：`sites.yaml` 写入失败（目录只读、被杀毒软件占用、磁盘满）时，
+用户看到的是「已应用」，紧接着面板从磁盘重载 —— 开关、删除、清除登录状态
+**全部静默回滚**，界面上一个字都不解释。
+
+**修复**：接收返回值，判 `r.error` 后显示失败原因并提前返回，不再谎报成功。
+
+### 3. 开机自启动读取失败被显示成「未开启」（`Work\web\main.js`）
+
+`get_autostart()` 走 `get_autostart_status()`，注册表读取异常时返回
+`{"enabled": False, "error": ...}`；前端只读 `enabled`，无条件写「未开启」。
+`refreshAutostart()` 里那段「读取失败」提示只在 `catch` 里，而这条路径
+后端是正常返回，永远不会走到。
+
+**用户可见后果**：注册表读不到（权限、安全软件拦截、项损坏）时，
+界面给出确定的「未开启」。用户据此以为没开，点一下开关反而可能弹出
+「设置失败」，两个提示自相矛盾。
+
+**修复**：`refreshAutostart()` 判 `r.error`，显示「读取失败」并保持开关灰态。
+
+### 回归
+
+`recon-archive\fixes-verify\startup_banner_check.js`（Node，无需 GUI 或 jsdom）：
+在 DOM 桩里真实执行 `main.js`，覆盖上述三条的正反用例与转义，
+并带**变异自检** —— 把每处修复退回原样后对应用例必须转红，
+避免写出「永远通过」的空断言。
+
+```bash
+node recon-archive/fixes-verify/startup_banner_check.js
+```
+
+### 未处理（本次只记录，未改动代码）
+
+- `items[].start`：6 个适配器都在产出，界面不显示。保留原因：开始时间对
+  「什么时候交」没有帮助，删字段又要动 6 个适配器，收益不明，留待决定。
+- `compute_normal()` 产出的 `end` 在浮窗侧从不被读取：白窗只显示
+  「剩 3 天 2 小时」这类倒计时，看不到确切截止时刻（`panel.css` 里
+  那个 `.due` 样式被拿去装倒计时了）。**未改**：动它会改到浮窗的信息布局，
+  属于外观决策。
+- `task_logic.parse_time()`（Python）与 `main.js` 的 `new Date()`（JS）
+  两套时间口径不一致（实测见下）。**未改**：归一化要逐站点核对接到的真实
+  格式，改错的风险比现状大。
+- `list_sites` 的 `school` / `has_basic_auth` / `supports_silent_login`、
+  `need_login.has_credentials`、`done.done_at`、`manual_tasks.created_at`：
+  产出但无人消费的死字段/死列。无用户可见后果，属于清理项。
+
+时间口径实测（`core/task_logic.py` 的 `parse_time` vs JS `new Date`）：
+
+| 输入 | Python | JS |
+|---|---|---|
+| `2026-09-25 23:59:00` | ✅ | ✅ |
+| `2026-09-25T23:59:00.000Z` / `.000` / `+08:00` | ❌ None | ✅ |
+| `2026-09-25`（纯日期） | ❌ None | ✅ |
+| `2026/09/25 23:59` | ✅ | ❌ Invalid |
+
+后果不对称：Python 侧解析失败会让任务**静默不进紧急浮窗**
+（`task_logic.py` 的 `continue`），JS 侧解析失败只是主列表排序失效。
+目前 `tyche.py` 只做 `T`→空格、`learn.py` 直接透传上游字符串，
+两者若返回带毫秒或时区的串就会踩到第一种情况。
+
+---
+
+## 🔧 修补二：浮窗数据流（v26.4 补丁）
+
+### 4. 浮窗最小化后数据永久停止更新
+
+`layout_all()` 把「显示/定位窗口」和「向前端注入数据」写在同一个
+`if not _alert_minimized:` 分支里。用户把红窗缩到任务栏后，该标志置真且
+**除 `reset_floating()` 外没有任何清除路径**（浮窗没有注册 `restored` 事件），
+于是从任务栏拉回来的窗口永远停在最小化之前那一批任务：
+已经完成的作业还列在里面、倒计时永远冻结、新任务不再出现。
+更极端的情况下 `urgent` 变空会让 `layout_all` 走 `hide()`，
+用户刚拉出来的窗口当场消失且再不会出现。
+
+**修复**：抽出 `_inject_urgent()` / `_inject_normal()` 并把调用移到最小化
+判断**之外**（最小化只跳过显示/定位，不再跳过数据）；给两个浮窗注册
+`events.restored` 回调 `_on_float_restored()`，从任务栏恢复时清掉标志并重排。
+
+### 5. 任务链接可点（此前全链路产出、界面零消费）
+
+6 个适配器都抓了原网页链接，手动任务的「链接」输入框也专门让用户填，
+但主列表从不渲染它 —— 用户填了等于白填，抓到的作业深链也白抓。
+
+**修复**：
+- 后端新增 `Api.open_url(url)`，用系统默认浏览器打开，只放行 `http(s)`
+  （拒绝 `file://`、`javascript:` 等伪协议），失败走 `{"error": ...}`。
+  不用 `<a target="_blank">` 是因为那让 WebView2 自己导航，
+  题目站点普遍要求登录态，只会弹出空白页；交给系统浏览器能复用已登录会话。
+- 前端 `render()` 对有链接的任务把标题渲染成可点元素，
+  点击调 `open_url`，失败弹提示。
+
+### 已知但**未改**：浮窗全关 + 主窗口被藏后没有入口
+
+浮窗上的「主面板」按钮会 `hide_main()`（主窗口连任务栏条目一起消失），
+而 `_alert_dismissed` / `_panel_dismissed` 只在 `reset_floating()` 里清除，
+`reset_floating()` 又只能从主窗口的按钮调用 —— 两者互相依赖。
+如果用户先点「主面板」再关掉两个浮窗，屏幕上就没有任何窗口、
+任务栏没有条目、托盘没有图标，只能去任务管理器结束进程。
+
+**未改，且已确认不该改**：曾试过在 `dismiss_alert()` / `dismiss_panel()` 里
+补一个「主窗口不可见就把它调出来」的兜底，但那样用户点浮窗的 × 时
+主窗口会莫名冒出来，**违反「× 只关掉这个浮窗」的既有语义**，已撤销。
+要解决只能另加真正的入口（托盘图标 / 全局热键），
+而不是改 dismiss 的行为。`float_inject_check.py` 第 7 节专门钉住了这条语义，
+防止以后又被"顺手加回去"。
+
+**注意**：浮窗的 × 只隐藏该浮窗，**不会退出程序**；退出只由主窗口的
+标题栏关闭按钮触发（`_on_main_closing()`）。
+
+### 回归
+
+- `recon-archive\fixes-verify\startup_banner_check.js`（Node，无需 GUI 或 jsdom）：
+  在 DOM 桩里真实执行 `main.js`，覆盖上述 1/2/3/6 四条的正反用例与转义。
+- `recon-archive\fixes-verify\float_inject_check.py`（Python，假窗口替身）：
+  覆盖第 4 条 —— 最小化后仍注入、恢复后清标志、就绪门禁、
+  以及第 7 节对「浮窗 × 语义」的守卫。
+
+两个脚本都带**变异自检**：把每处修复退回原样后对应用例必须转红，
+避免写出「永远通过」的空断言。
+
+```bash
+node recon-archive/fixes-verify/startup_banner_check.js
+python recon-archive/fixes-verify/float_inject_check.py
+```
+
+### 分发注意
+
+`dist\HomeworkTasks\_internal\web\` 下的 `main.js` / `main.css` 是外置资源，
+已同步到与 `Work\web\` 一致。但 `open_url` 和浮窗注入都在
+`core\controller.py` 里，而 `core` 是打进 `HomeworkTasks.exe` 的，
+**必须重新执行 PyInstaller 打包才能让第 4/5 条在发布版里生效**。
+只复制 web 目录，界面不会崩（`res.startup || []` 和 `r.error` 判断
+都对老后端兼容），但新行为不会出现。
+
+---
+
+## ✨ 新功能：抓取进度文字区 + 启动行为开关
+
+### 需求 A：抓取时的进度文字区
+
+抓取期间在**任务列表上方**出现一行行状态文字，显示「正在发生什么」；
+抓完收起、内容清空，把空间还给任务列表。
+
+外观上就是**文字落在原来的底版上**：不加底色、不加边框、不加圆角，
+与顶部「任务刷新中」是同一种观感（13px、无背景）。
+每行形如 `[站点名] 开始抓取`，其中**方括号部分（含站点名）用蓝色**，
+其余正文黑色；站点名用等宽字体以便和正文对齐。
+
+- **只允许 3 类行**：`检查网络… 已连接` / `[站点名] 开始抓取` /
+  `[站点名] 完成 N 条`（或 `需要登录` / `抓取失败`）。
+  适配器内部的调试输出（`[silent-login]`、`[relogin]`、`[wait]` 超时、
+  英文错误码、选择器字符串）**一律不透出来** —— 播报逻辑在
+  `site_runner._fetch_one_site_locked()` 的返回点，不碰 7 个适配器。
+- **行为**：最多 3 行，新的顶掉最旧的，自动滚到底；
+  相邻两行最小间隔 150ms，但区域为空时前 3 行立即输出（不拖首屏）。
+- **无时间戳、无总耗时、无进度条、无「第 N/M 个」**。
+
+实现要点（都是踩过的坑）：
+
+| 注意点 | 原因 |
+|---|---|
+| 容器放在 `#content` **外面** | `render()` 每次都整块重建 `#content` 的 innerHTML，放里面会被每次重绘冲掉 |
+| 必须走 `evaluate_js` 推送 | 放进 `get_homeworks()` 返回值的话，promise 要抓完才 resolve，用户全程看不到东西 |
+| 推送前必须确认 `_main_ready` | pywebview 的 `evaluate_js` 带 `@_shown_call`，未就绪会先白等 20 秒再抛异常 |
+| 播报点只有一个函数、多个返回点 | `_fetch_one_site_locked()` 有 6 个 return，逐个补播报由测试守护 |
+| 抓取加了串行锁 `_fetch_lock` | 连点刷新时两轮进度行会交叉串台 |
+| 方括号单独包 `<span class="br">` | 只给中括号染蓝，其余保持黑色；用 `textContent` 逐段赋值，不走 innerHTML |
+
+### 需求 B：设置里的「启动行为」两个开关
+
+设置里合并成一个「🚀 启动行为」区块，两个开关与「开机自启动」**同一套样式**
+（`.switch`），没有灰色说明文字：
+
+| 开关 | 开 | 关 |
+|---|---|---|
+| **开机自启动** | 每次开机并联网后自动启动 | 不开机自启 |
+| **启动时静默** | 启动不出现窗口（`startup_mode: silent`，默认） | 启动即显示界面（`visible`） |
+
+值存在 `sites.yaml` 的顶层键 `startup_mode`（`silent` / `visible`），
+老配置没有这个键时用默认值 `silent` 兜底。
+
+「启动时静默」的开关状态**在启动时就主动读一次后端**，而不是等打开设置面板
+才读 —— 开关没有「默认勾选」这回事，不主动读的话第一次打开设置面板时
+开关是空的。
+
+**`minimized=True` 达不到静默效果**：pywebview 只设 `WindowState`，
+窗口仍走 `browser.Show()`，会真实显示一瞬再缩进任务栏 → 任务栏图标闪一下。
+改成 `hidden=True`（`Opacity=0 → Show() → Hide()`，肉眼看不到）。
+
+**关键发现（文档里原本没写）**：`hidden=True` 的实现里**仍然会调用
+`Show()`**，因此 WinForms 的 `Shown` 事件照常触发 → pywebview 的
+`evaluate_js` 的 `@_shown_call` 门禁能通过，隐藏窗口推数据不会卡 20 秒。
+这条是这个方案能成立的前提。
+
+同步对齐了三处「会自动显示窗口」的地方：
+
+1. `get_homeworks()` 首次显示 → 静默档不显示；
+   **直接显示档改为在抓取之前显示**（否则等抓完才显示，用户看不到滚动过程，
+   而需求 B 的核心就是让用户看着它滚）。
+2. `_startup_show_fallback()` 300 秒兜底 → 静默档不再弹窗
+   （用户选了「每次启动都不出现窗口」，到点自动弹出来直接违背选择）。
+3. `show_main_window()` 各调用点（用户点「主面板」/「重置浮窗」）行为不变。
+
+`save_sites()` 原先直接写 `{"sites": [...]}`，会把 `startup_mode`
+这类顶层键整块抹掉 —— 已改为「只替换站点数组，保留其它顶层键」。
+不修的话，用户点一次「应用」，启动行为设置就悄悄回到默认值。
+
+### 回归
+
+三个新脚本，都带变异自检或等价的结构守护：
+
+| 脚本 | 覆盖 |
+|---|---|
+| `recon-archive\fixes-verify\progress_check.py` | 播报行内容只落在允许的 3 类、适配器日志不泄漏、150ms 限速、前 3 行立即、无接收端时 no-op、接收端抛异常不拖垮抓取 |
+| `recon-archive\fixes-verify\config_keys_check.py` | `save_sites` 保留顶层键、`startup_mode` 读写、老配置兜底、非法值回落、损坏文件不崩 |
+| `recon-archive\fixes-verify\startup_banner_check.js` | 进度区出现/收起/清空/最多 3 行/迟到行丢弃、`main_ready` 先于 `get_homeworks`、启动行为切换与失败回滚 |
+| `recon-archive\fixes-verify\float_inject_check.py` | 新增：直接显示档 show 先于 fetch_all、静默档不显示、首轮只显示一次 |
+
+```bash
+node recon-archive/fixes-verify/startup_banner_check.js
+python recon-archive/fixes-verify/progress_check.py
+python recon-archive/fixes-verify/config_keys_check.py
+python recon-archive/fixes-verify/float_inject_check.py
+```
+

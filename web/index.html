@@ -26,6 +26,11 @@
   <button class="tab" data-tab="done">已完成 <span class="count" id="cnt-done">0</span></button>
 </div>
 
+<!-- 抓取进度文字区：抓取期间临时出现，抓完收起清空。
+     放在任务列表上面，且刻意放在 #content 外面 —— render() 每次都整块
+     重建 #content 的 innerHTML，放在里面会被每次重绘冲掉。 -->
+<div id="progress" class="progress" hidden></div>
+
 <div id="content"></div>
 
 <!-- ========== 弹窗 1：添加任务 ========== -->
@@ -72,13 +77,17 @@
     </div>
 
     <div class="section">
-      <h3>🚀 开机自启动</h3>
+      <h3>🚀 启动行为</h3>
       <div class="auto-row">
         <div class="switch" id="autostart-switch"></div>
-        <div class="label">开机自动启动任务清单</div>
+        <div class="label">开机自启动</div>
         <div class="status" id="autostart-status">未开启</div>
       </div>
-      <div class="auto-hint">开启后，每次开机并联网后自动启动。</div>
+      <div class="auto-row">
+        <div class="switch" id="silent-switch"></div>
+        <div class="label">启动时静默</div>
+        <div class="status" id="silent-status">未开启</div>
+      </div>
     </div>
 
     <div class="modal-actions">

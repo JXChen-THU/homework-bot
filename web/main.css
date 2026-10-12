@@ -18,9 +18,10 @@ header {
 h1 { font-size: 22px; font-weight: 600; }
 
 .loading-hint {
-  font-size: 13px;
-  color: #7f8c8d;
+  font-size: 14px;
   font-weight: 500;
+  color: #7f8c8d;
+  letter-spacing: 0.01em;
 }
 
 .actions { display: flex; gap: 8px; margin-left: auto; }
@@ -80,6 +81,15 @@ h1 { font-size: 22px; font-weight: 600; }
 .banner .login-hint {
   font-size: 12px;
   opacity: 0.75;
+}
+
+/* 启动提示里的数据目录路径：要能一眼看清，方便用户去找配置 */
+.banner .startup-detail {
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  word-break: break-all;
+  opacity: 0.8;
 }
 
 /* ========== 标签页 ========== */
@@ -158,6 +168,13 @@ h1 { font-size: 22px; font-weight: 600; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 有原网页链接的任务：标题可点，交由系统浏览器打开 */
+.title .text.link {
+  cursor: pointer;
+  color: #4a69bd;
+}
+.title .text.link:hover { text-decoration: underline; }
 
 .badge {
   display: inline-block;
@@ -400,7 +417,7 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 .switch.on::after { left: 20px; }
 
-/* ========== 自启动行 ========== */
+/* ========== 启动行为（两个开关叠在一起）========== */
 .auto-row {
   display: flex;
   align-items: center;
@@ -410,7 +427,31 @@ h1 { font-size: 22px; font-weight: 600; }
   border-radius: 8px;
   background: #fafbfc;
 }
+.auto-row + .auto-row { margin-top: 8px; }
 .auto-row .label { flex: 1; font-size: 14px; font-weight: 500; }
 .auto-row .status { font-size: 12px; color: #95a5a6; }
 .auto-row .status.on { color: #27ae60; font-weight: 500; }
-.auto-hint { font-size: 12px; color: #95a5a6; margin-top: 8px; padding-left: 2px; }
+
+/* ========== 抓取进度文字区 ========== */
+/* 只是文字落在底版上，不加底色、不加边框 —— 和「任务刷新中」是同一种观感。 */
+.progress {
+  margin: 4px 0 14px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.8;
+  letter-spacing: 0.014em;
+  color: #111;
+  font-feature-settings: "tnum" 1;
+}
+.progress[hidden] { display: none; }
+.progress .line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 「[站点名]」整体用蓝色，其余文字保持黑色 */
+.progress .line .br {
+  color: #4a69bd;
+  font-weight: 600;
+}
+

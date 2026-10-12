@@ -14,9 +14,73 @@ const addBtn = document.getElementById('add-btn');
 const modalBg = document.getElementById('modal-bg');
 const modalError = document.getElementById('modal-error');
 const loadingHint = document.getElementById('loading-hint');
+const progressArea = document.getElementById('progress');
 
 let items = [];
 let currentTab = 'todo';
+
+// ============================================================
+// 抓取进度文字区
+//
+// 这是「抓取时正在发生什么」的临时展示，不是终端也不是日志查看器：
+// 抓取开始出现、抓完收起清空，把空间还给任务列表。
+// 放到 #content 外面是必须的 —— render() 每次整块重建 #content，
+// 放在里面会被每次重绘冲掉。
+// ============================================================
+const PROGRESS_MAX_LINES = 3;
+
+function showProgress() {
+  progressArea.innerHTML = '';
+  progressArea.hidden = false;
+}
+
+function hideProgress() {
+  progressArea.hidden = true;
+  progressArea.innerHTML = '';
+}
+
+// Python 侧通过 evaluate_js 调这个；失败不能影响抓取，所以全程不抛。
+// 站点名写成「[站点名] 结果」，站点名（含方括号）会单独用蓝色渲染。
+function appendBracketLine(parent, text) {
+  const m = text.match(/^(\[[^\]]*\])([\s\S]*)$/);
+  if (!m) {
+    parent.textContent = text;
+    return;
+  }
+  const br = document.createElement('span');
+  br.className = 'br';
+  br.textContent = m[1];
+
+  const rest = document.createElement('span');
+  rest.textContent = m[2];
+
+  parent.appendChild(br);
+  parent.appendChild(rest);
+}
+
+window.__appendLog = function (line) {
+  try {
+    if (line == null) return;
+    const text = String(line);
+    if (!text) return;
+
+    // 区域是隐藏的说明这轮已经结束，迟到的行直接丢弃，
+    // 免得把「抓完就消失」变成一条残留的尾巴。
+    if (progressArea.hidden) return;
+
+    const div = document.createElement('div');
+    div.className = 'line';
+    appendBracketLine(div, text);
+    progressArea.appendChild(div);
+
+    // 最多 3 行：新的顶掉最旧的
+    while (progressArea.children.length > PROGRESS_MAX_LINES) {
+      progressArea.removeChild(progressArea.firstChild);
+    }
+    progressArea.scrollTop = progressArea.scrollHeight;
+  } catch (_) { /* 进度是辅助信息，任何异常都不许冒泡到 Python */ }
+};
+
 
 // ============================================================
 // 时间计算
@@ -70,8 +134,20 @@ const LOGIN_HINTS = {
   },
 };
 
-function renderBanners(errors, needLogin) {
+function renderBanners(errors, needLogin, startup) {
   let html = '';
+
+  // 启动提示（例如数据目录不可写、已静默回退到 %LOCALAPPDATA%）。
+  // 这类信息没有别的出口，不显示用户就只会看到「配置莫名丢了」。
+  if (startup && startup.length) {
+    startup.forEach(m => {
+      const kind = m.kind === 'err' ? 'err' : 'warn';
+      html += `<div class="banner ${kind}">`
+        + `<div>${escapeHtml(m.text)}</div>`
+        + (m.detail ? `<div class="startup-detail">${escapeHtml(m.detail)}</div>` : '')
+        + '</div>';
+    });
+  }
 
   if (needLogin && needLogin.length) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
@@ -185,13 +261,23 @@ function render() {
     const dueText = it.end ? `截止：${escapeHtml(it.end)}` : '无截止时间';
     const delBtn = it.manual ? `<button class="del" data-del="${escapeHtml(it.uid)}">删除</button>` : '';
 
+    // 原网页链接：适配器抓到的作业深链、以及手动任务里手填的「链接」,
+    // 此前全链路产出但界面从不显示，等于白填/白抓。
+    // 用 js_api 交给系统浏览器打开，而不是 <a target="_blank">
+    // —— 后者是让 WebView2 自己导航，站点要求登录态，只会弹出空白页。
+    const link = (it.url || '').trim();
+    const linkable = /^https?:\/\//i.test(link);
+    const titleHtml = linkable
+      ? `<span class="text link" data-url="${escapeHtml(link)}" title="${escapeHtml(link)}">${escapeHtml(it.title)}</span>`
+      : `<span class="text">${escapeHtml(it.title)}</span>`;
+
     return `
       <div class="item ${cls}">
         <input type="checkbox" ${it.done ? 'checked' : ''} data-uid="${escapeHtml(it.uid)}" />
         <div class="info">
           <div class="title">
             ${badge}${courseBadge}
-            <span class="text">${escapeHtml(it.title)}</span>
+            ${titleHtml}
           </div>
           <div class="meta">${dueText}</div>
         </div>
@@ -240,6 +326,22 @@ function render() {
       render();
     });
   });
+
+  content.querySelectorAll('.link[data-url]').forEach(el => {
+    el.addEventListener('click', async () => {
+      let r;
+      try {
+        r = await window.pywebview.api.open_url(el.dataset.url);
+      } catch (err) {
+        alert('打开链接失败：' + err);
+        return;
+      }
+      if (r && r.error) {
+        // open_url 用正常返回值表达失败（伪协议 / 没有可用浏览器）
+        alert('打开链接失败：' + r.error);
+      }
+    });
+  });
 }
 
 // ============================================================
@@ -249,19 +351,25 @@ async function load() {
   refreshBtn.disabled = true;
   loadingHint.textContent = '任务刷新中，请等待…';
 
+  // 任何一次抓取都显示进度区（手动刷新、启动首次抓取都算）。
+  // 无任务时也照常显示 —— 它反映的是抓取状态，与有没有任务无关。
+  showProgress();
+
   try {
-    // get_homeworks 只返回 {items, errors, need_login}，没有 error 字段；
+    // get_homeworks 返回 {items, errors, need_login, startup}，没有 error 字段；
     // 抓取失败会走 catch（pywebview 把后端异常变成 rejected promise），
-    // 单个站点的问题则在 res.errors 里
+    // 单个站点的问题在 res.errors 里，启动期提示（如数据目录回退）在 res.startup 里
     const res = await window.pywebview.api.get_homeworks();
     items = res.items || [];
-    renderBanners(res.errors || [], res.need_login || []);
+    renderBanners(res.errors || [], res.need_login || [], res.startup || []);
     render();
   } catch (e) {
     banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
   } finally {
     refreshBtn.disabled = false;
     loadingHint.textContent = '';
+    // 抓取结束 → 收起并清空，不保留最后几行
+    hideProgress();
   }
 }
 
@@ -353,6 +461,7 @@ async function openSettings() {
   applyHint.className = 'apply-hint';
   await refreshSitesPanel();
   await refreshAutostart();
+  await refreshStartupBehavior();
 }
 
 async function refreshSitesPanel() {
@@ -475,10 +584,20 @@ function updateApplyHint() {
 }
 
 document.getElementById('apply-sites-btn').addEventListener('click', async () => {
+  let r;
   try {
-    await window.pywebview.api.apply_sites_changes(siteDraft);
+    // 必须接返回值：写 sites.yaml 失败时后端是正常返回 {"error": ...}，
+    // 不会抛异常，所以下面的 catch 接不到。不判 error 就会在写盘失败后
+    // 显示「✓ 已应用」，紧接着 refreshSitesPanel() 从磁盘重载，开关/删除
+    // 全部静默回滚，用户完全不知道发生了什么。
+    r = await window.pywebview.api.apply_sites_changes(siteDraft);
   } catch (err) {
     applyHint.textContent = '应用失败：' + err;
+    applyHint.className = 'apply-hint warn';
+    return;
+  }
+  if (r && r.error) {
+    applyHint.textContent = '应用失败：' + r.error;
     applyHint.className = 'apply-hint warn';
     return;
   }
@@ -607,12 +726,23 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
 // ============================================================
 const autostartSwitch = document.getElementById('autostart-switch');
 const autostartStatus = document.getElementById('autostart-status');
+const silentModeSwitch = document.getElementById('silent-switch');
+const silentStatus = document.getElementById('silent-status');
 
 async function refreshAutostart() {
   let r;
   try {
     r = await window.pywebview.api.get_autostart();
   } catch (e) {
+    autostartStatus.textContent = '读取失败';
+    autostartStatus.className = 'status';
+    return;
+  }
+  // 注册表读取失败时后端是正常返回 {"enabled": False, "error": ...}，不会抛异常，
+  // 上面的 catch 接不到。不判 error 就会把「读不到」显示成确定的「未开启」，
+  // 用户据此以为没开，点一下开关反而可能弹「设置失败」。
+  if (r && r.error) {
+    autostartSwitch.classList.remove('on');
     autostartStatus.textContent = '读取失败';
     autostartStatus.className = 'status';
     return;
@@ -650,6 +780,63 @@ autostartSwitch.addEventListener('click', async () => {
 });
 
 // ============================================================
+// 启动行为：「启动时静默」开关
+//
+// 开关样式和「开机自启动」共用 .switch。
+// 开 = silent（每次启动都不出现窗口），关 = visible（启动即显示界面）。
+// ============================================================
+async function refreshStartupBehavior() {
+  let r;
+  try {
+    r = await window.pywebview.api.get_startup_behavior();
+  } catch (e) {
+    silentStatus.textContent = '读取失败';
+    silentStatus.className = 'status';
+    return;
+  }
+  // 后端读取失败时是正常返回 {"mode":..., "error":...}，上面 catch 接不到；
+  // 读不到就说「读取失败」，别谎报成某个模式。
+  if (r && r.error) {
+    silentStatus.textContent = '读取失败';
+    silentStatus.className = 'status';
+    return;
+  }
+  if (r && r.mode === 'silent') {
+    silentModeSwitch.classList.add('on');
+    silentStatus.textContent = '已开启';
+    silentStatus.className = 'status on';
+  } else {
+    silentModeSwitch.classList.remove('on');
+    silentStatus.textContent = '未开启';
+    silentStatus.className = 'status';
+  }
+}
+
+silentModeSwitch.addEventListener('click', async () => {
+  // 开关上的 'on' 类就是「静默」这个选项本身
+  const wantSilent = !silentModeSwitch.classList.contains('on');
+  silentModeSwitch.style.pointerEvents = 'none';
+  let r;
+  try {
+    r = await window.pywebview.api.set_startup_behavior(wantSilent ? 'silent' : 'visible');
+  } catch (e) {
+    r = { error: String(e) };
+  } finally {
+    // 无论成功失败都要恢复点击，否则开关会被永久锁死
+    silentModeSwitch.style.pointerEvents = '';
+  }
+  if (r && r.error) {
+    // set_startup_behavior 用正常返回值表达失败（非法值 / 写盘失败）。
+    // 重新读一次后端状态来回滚开关，并把失败原因留在状态文字里。
+    await refreshStartupBehavior();
+    silentStatus.textContent = '保存失败：' + r.error;
+    silentStatus.className = 'status';
+    return;
+  }
+  await refreshStartupBehavior();
+});
+
+// ============================================================
 // 设置面板打开/关闭
 // ============================================================
 document.getElementById('settings-btn').addEventListener('click', openSettings);
@@ -676,7 +863,15 @@ window.__syncFromCache = function(newItems) {
   render();
 };
 
-window.addEventListener('pywebviewready', load);
+window.addEventListener('pywebviewready', async () => {
+  // 必须先告诉 Python「前端就绪」：抓取期间它会用 evaluate_js 推进度，
+  // 而 evaluate_js 在未就绪时会先白等 20 秒（pywebview 的 @_shown_call）。
+  try { await window.pywebview.api.main_ready(); } catch (_) {}
+  // 开关没有「默认勾选」这回事，必须主动读一次后端状态，
+  // 否则设置面板刚打开时开关是空的。
+  await refreshStartupBehavior();
+  await load();
+});
 
 setInterval(() => {
   if (!items.length) return;

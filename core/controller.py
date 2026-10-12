@@ -16,7 +16,7 @@ from core.database import get_conn
 from core.task_logic import compute_urgent, compute_normal
 from core import paths
 
-from core.site_runner import fetch_all, login_site
+from core.site_runner import fetch_all, login_site, set_progress_sink
 
 
 # ============================================================
@@ -59,12 +59,21 @@ _cache_lock = threading.Lock()
 
 _alert_ready = False
 _panel_ready = False
+_main_ready = False          # 主窗口前端已就绪，可以安全 evaluate_js
 _main_visible = False
 _first_load_done = False
+_startup_shown = False       # 启动期的首轮显示已经做过（直接显示档用）
 _alert_shown = False
 _panel_shown = False
 _main_positioned = False
 _quit_flag = False
+
+# 启动行为：silent 启动时窗口全程不出现；visible 启动即显示界面。
+# 真正的值从 sites.yaml 读（老配置没有这个键 → 用默认值）。
+_startup_mode = "silent"
+
+# 抓取进度：同一时刻只允许一次抓取，避免两轮进度行交叉串台。
+_fetch_lock = threading.Lock()
 
 # 用户最小化浮窗（缩到任务栏）
 _alert_minimized = False
@@ -199,6 +208,94 @@ def show_main_window():
     _main_visible = True
 
 
+def _inject_urgent(urgent):
+    """把紧急任务推给红窗前端。"""
+    if not _alert_ready:
+        return
+    js = (f'window.__updateUrgent && '
+          f'window.__updateUrgent({json.dumps(urgent, ensure_ascii=False)})')
+    try:
+        _alert_window.evaluate_js(js)
+    except Exception as e:
+        print(f"[alert] {e}")
+
+
+def _inject_normal(normal):
+    """把普通任务推给白窗前端。"""
+    if not _panel_ready:
+        return
+    js = (f'window.__updateNormal && window.__updateNormal('
+          f'{json.dumps(normal, ensure_ascii=False)})')
+    try:
+        _panel_window.evaluate_js(js)
+    except Exception as e:
+        print(f"[panel] {e}")
+
+
+def _on_float_restored(is_alert):
+    """浮窗被从任务栏拉回来 → 清掉最小化标志并重排。
+
+    没有这个回调，最小化标志会一直为真：数据注入被跳过、show() 也被跳过，
+    窗口从此停在旧内容上，只能回主窗口点「重置浮窗」。
+    """
+    global _alert_minimized, _panel_minimized
+    if is_alert:
+        _alert_minimized = False
+    else:
+        _panel_minimized = False
+    layout_all()
+
+
+# ============================================================
+# 抓取进度播报（推到主窗口的进度文字区）
+#
+# 为什么走 evaluate_js 而不是放进 get_homeworks 的返回值：
+# 那个 promise 要等抓完才 resolve，用户在整个抓取过程中看不到任何东西。
+#
+# 为什么必须先看 _main_ready：
+# pywebview 的 evaluate_js 带 @_shown_call，未就绪时会先阻塞等 20 秒再抛异常。
+# 抓取期间会被调用很多次，不能白白卡住 worker 线程。
+# ============================================================
+def _push_progress(line):
+    if not _main_ready or _main_window is None:
+        return
+    try:
+        js = ('window.__appendLog && window.__appendLog('
+              + json.dumps(line, ensure_ascii=False) + ')')
+        _main_window.evaluate_js(js)
+    except Exception as e:
+        print(f"[progress] 推送失败：{type(e).__name__}: {e}")
+
+
+def _main_frontend_ready():
+    """主窗口前端已注册好全局函数 → 允许 evaluate_js。
+
+    由 main.js 在 pywebviewready 时调用。没有这个信号，
+    抓取期间推进度会先白等 20 秒（pywebview 的 _shown_call）。
+    """
+    global _main_ready
+    _main_ready = True
+
+
+def get_startup_mode():
+    return _startup_mode
+
+
+def set_startup_mode(mode):
+    """切换启动行为并落盘。返回 {"ok": True} 或 {"error": ...}。"""
+    global _startup_mode
+    from core.site_runner import save_startup_mode
+
+    if mode not in ("silent", "visible"):
+        return {"error": f"未知的启动行为：{mode}"}
+    ok, err = save_startup_mode(mode)
+    if not ok:
+        # 写盘失败就不要改内存状态，否则界面显示的和下次启动的会不一致
+        return {"error": f"保存到 sites.yaml 失败：{err}"}
+    _startup_mode = mode
+    return {"ok": True, "mode": mode}
+
+
 def layout_all():
     """重新布局红窗和白窗。
     - 用户最小化或关闭的浮窗不再自动弹出
@@ -232,14 +329,6 @@ def layout_all():
             except Exception:
                 pass
 
-            if _alert_ready:
-                js = (f'window.__updateUrgent && '
-                      f'window.__updateUrgent({json.dumps(urgent, ensure_ascii=False)})')
-                try:
-                    _alert_window.evaluate_js(js)
-                except Exception as e:
-                    print(f"[alert] {e}")
-
         alert_bottom = y_default + h + GAP
     else:
         try:
@@ -247,6 +336,11 @@ def layout_all():
         except Exception:
             pass
         alert_bottom = y_default
+
+    # 注入放在最小化判断之外：窗口被最小化时「显示/定位」应当跳过，
+    # 但数据必须照常推到前端。否则用户把红窗从任务栏拉回来后，
+    # 里面还是最小化之前那一批任务，且再也刷不新。
+    _inject_urgent(urgent)
 
     # ========== 白窗 ==========
     if normal and not _panel_dismissed:
@@ -264,19 +358,14 @@ def layout_all():
                     _panel_shown = True
             except Exception:
                 pass
-
-            if _panel_ready:
-                js = (f'window.__updateNormal && window.__updateNormal('
-                      f'{json.dumps(normal, ensure_ascii=False)})')
-                try:
-                    _panel_window.evaluate_js(js)
-                except Exception as e:
-                    print(f"[panel] {e}")
     else:
         try:
             _panel_window.hide()
         except Exception:
             pass
+
+    # 同红窗：数据注入不随「最小化」一起跳过
+    _inject_normal(normal)
 
 
 # ============================================================
@@ -427,14 +516,30 @@ class Api:
 
     # ---------- 任务数据 ----------
     def get_homeworks(self):
-        global _items_cache, _first_load_done
+        global _items_cache, _first_load_done, _startup_shown
 
-        try:
-            homeworks, errors, need_login = fetch_all()
-        except Exception as e:
-            homeworks = []
-            errors = [{"site_name": "抓取", "message": f"{type(e).__name__}: {e}"}]
-            need_login = []
+        # 直接显示档：抓取**之前**就把窗口显示出来。
+        # 否则等抓完才显示，用户根本看不到进度文字区滚动 —— 需求 B 的核心
+        # 就是让用户看着它滚。
+        if _startup_mode == "visible" and not _startup_shown:
+            _startup_shown = True
+            show_main_window()
+
+        # 抓取放到锁里：连点刷新时两轮进度行会交叉串台。
+        # 串行的代价是第二次刷新要等第一次结束 —— 比进度错乱可接受。
+        with _fetch_lock:
+            sink = _push_progress if _main_ready else None
+            set_progress_sink(sink)
+            try:
+                try:
+                    homeworks, errors, need_login = fetch_all()
+                except Exception as e:
+                    homeworks = []
+                    errors = [{"site_name": "抓取",
+                               "message": f"{type(e).__name__}: {e}"}]
+                    need_login = []
+            finally:
+                set_progress_sink(None)
 
         conn = get_conn(DB)
         try:
@@ -473,10 +578,36 @@ class Api:
 
         if not _first_load_done:
             _first_load_done = True
-            show_main_window()
+            # 静默档：首次抓取完也不弹窗（用户可从浮窗的「主面板」按钮打开）。
+            # 直接显示档：上面已经在抓取前显示过了，这里不重复。
+            if _startup_mode == "visible" and not _startup_shown:
+                _startup_shown = True
+                show_main_window()
 
         return {"items": items, "errors": errors, "need_login": need_login,
                 "startup": paths.startup_messages()}
+
+    # ---------- 打开原网页 ----------
+    def open_url(self, url):
+        """用系统默认浏览器打开作业原网页。
+
+        为什么不让前端用 `<a target="_blank">`：那是让 WebView2 自己去导航，
+        题目站点普遍要求登录态或 X-Frame-Options，结果是弹出一个空白页或
+        登录页，用户以为功能坏了。交给系统浏览器则能复用用户已登录的会话。
+        """
+        import webbrowser
+
+        u = (url or "").strip()
+        # 只放行 http(s)：链接可能来自 sites.yaml / 手动任务输入，
+        # 不能让 file:// 或 javascript: 之类的伪协议落到系统 shell 上。
+        if not u.lower().startswith(("http://", "https://")):
+            return {"error": "仅支持 http/https 链接"}
+        try:
+            if not webbrowser.open(u):
+                return {"error": "系统没有可用的浏览器"}
+            return {"ok": True}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
 
     def toggle_done(self, uid, done):
         conn = get_conn(DB)
@@ -713,6 +844,18 @@ class Api:
     def set_autostart(self, enabled):
         return set_autostart_status(bool(enabled))
 
+    # ---------- 前端就绪 + 启动行为 ----------
+    def main_ready(self):
+        """主窗口前端已注册好全局函数。由 main.js 在 pywebviewready 时调用。"""
+        _main_frontend_ready()
+        return {"ok": True}
+
+    def get_startup_behavior(self):
+        return {"mode": get_startup_mode()}
+
+    def set_startup_behavior(self, mode):
+        return set_startup_mode(mode)
+
 
 # ============================================================
 # 主窗口关闭：任何方式关闭 → 退出程序
@@ -750,21 +893,28 @@ def _on_main_restored():
 
 
 def _startup_show_fallback():
-    global _first_load_done
+    """兜底：启动后长时间没拿到数据，就把窗口显示出来。
+
+    静默档下这里**不能弹窗** —— 用户选了「每次启动都不出现窗口」，
+    到点自动弹出来直接违背他的选择。静默档只标记首轮结束，保持隐藏。
+    """
+    global _first_load_done, _startup_shown
     for _ in range(600):
         time.sleep(0.5)
         if _quit_flag or _first_load_done:
             return
     if not _first_load_done and not _quit_flag:
         _first_load_done = True
-        show_main_window()
+        if _startup_mode == "visible":
+            _startup_shown = True
+            show_main_window()
 
 
 # ============================================================
 # 主函数
 # ============================================================
 def main():
-    global _main_window, _alert_window, _panel_window, _screen_w
+    global _main_window, _alert_window, _panel_window, _screen_w, _startup_mode
 
     # 1) 先解析数据目录。必须在任何 data/ 读写之前。
     ok, err = _setup_runtime_paths()
@@ -772,10 +922,12 @@ def main():
         _fatal_dialog("任务清单 - 无法启动", err)
         sys.exit(1)
 
-    # 2) 首次启动生成配置；把残留明文账密加密
+    # 2) 首次启动生成配置；把残留明文账密加密；读出启动行为
     try:
         ensure_sites_yaml()
         upgrade_credentials()
+        from core.site_runner import load_startup_mode
+        _startup_mode = load_startup_mode()
     except Exception as e:
         print(f"[init] 启动初始化失败：{type(e).__name__}: {e}")
 
@@ -789,10 +941,16 @@ def main():
     #    异常会在 webview.start() 抛出——必须给出中文、可操作的提示，
     #    否则用户只看到"程序没反应"。
     try:
+        # 静默档必须用 hidden=True，不能用 minimized=True：
+        # minimized 只是设 WindowState，pywebview 仍会 browser.Show()，
+        # 窗口真实显示一瞬再缩进任务栏 → 任务栏图标闪一下，谈不上"静默"。
+        # hidden 走的是 Opacity=0 → Show() → Hide()，肉眼看不到。
+        # 注意 hidden 仍会触发 WinForms 的 Shown 事件，所以
+        # evaluate_js 的 @_shown_call 门禁能通过，之后照常推数据。
         _main_window = webview.create_window(
             "任务清单", index_path, js_api=api,
             width=1000, height=720,
-            minimized=True,
+            hidden=(_startup_mode == "silent"),
         )
         _main_window.events.closing += _on_main_closing
         _main_window.events.minimized += _on_main_minimized
@@ -810,6 +968,12 @@ def main():
             width=ALERT_W, height=200,
             transparent=True,
         )
+
+        # 浮窗从任务栏恢复 → 清掉最小化标志并重排。
+        # 之前只给主窗口注册了 restored，浮窗被拉回来后标志仍为真，
+        # 于是数据注入和 show() 双双被跳过，窗口永久停在旧内容上。
+        _alert_window.events.restored += lambda: _on_float_restored(True)
+        _panel_window.events.restored += lambda: _on_float_restored(False)
 
         threading.Thread(target=_startup_show_fallback, daemon=True).start()
 

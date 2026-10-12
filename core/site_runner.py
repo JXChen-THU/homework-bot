@@ -83,6 +83,74 @@ def wait_for_network(timeout=120, interval=2):
 
 
 # ============================================================
+# 抓取进度播报
+#
+# 这是给界面看的「正在发生什么」，不是日志。只允许 3 类行：
+#   1. 检查网络（含结果）
+#   2. [站点名] 开始抓取
+#   3. [站点名] 结果
+# 适配器内部的调试输出（[silent-login]、[relogin]、英文错误码、
+# 选择器字符串）一律不许透出来 —— 这里只按站点的最终结果播报。
+#
+# 发送端是并发抓取的 worker 线程，所以 sink 必须线程安全；
+# controller 侧的 sink 会走 evaluate_js（自带线程封送），并在这里限速。
+# ============================================================
+_progress_lock = threading.Lock()
+_progress_sink = None
+_progress_count = 0
+_progress_last = 0.0
+
+PROGRESS_MIN_INTERVAL = 0.15   # 相邻两行最小间隔（秒）
+PROGRESS_BURST = 3             # 区域为空时前 N 行立即输出，不拖首屏
+
+
+def set_progress_sink(sink):
+    """注册进度接收端；传 None 取消。返回值不参与流程控制。"""
+    global _progress_sink, _progress_count, _progress_last
+    with _progress_lock:
+        _progress_sink = sink
+        _progress_count = 0
+        _progress_last = 0.0
+
+
+def _emit_progress(line):
+    """播报一行。任何异常都被吞掉：进度是辅助信息，不能拖垮抓取。"""
+    global _progress_count, _progress_last
+    if not line:
+        return
+    with _progress_lock:
+        sink = _progress_sink
+        if sink is None:
+            return
+        count = _progress_count
+        _progress_count += 1
+        if count >= PROGRESS_BURST:
+            elapsed = time.time() - _progress_last
+            if elapsed < PROGRESS_MIN_INTERVAL:
+                time.sleep(PROGRESS_MIN_INTERVAL - elapsed)
+        _progress_last = time.time()
+    try:
+        sink(line)
+    except Exception as e:
+        print(f"[progress] 播报失败：{type(e).__name__}: {e}")
+
+
+def _site_label(site):
+    return site.get("name") or site.get("id") or "未知站点"
+
+
+def _progress_result_line(site, homeworks, errors, need_login):
+    """把一次抓取的结果压成一行，只允许这几种说法。"""
+    name = _site_label(site)
+    if need_login:
+        return f"[{name}] 需要登录"
+    if errors:
+        return f"[{name}] 抓取失败"
+    return f"[{name}] 完成 {len(homeworks)} 条"
+
+
+
+# ============================================================
 # 原子写 + 读写互斥
 # sites.yaml 原先用 open(...,"w") 直写，CPython 会先 truncate，
 # 而 fetch_all 已经并行、controller 又可能随时重写配置，
@@ -154,8 +222,32 @@ def load_sites(include_disabled=False):
 
 def save_sites(sites):
     """把站点列表写回 sites.yaml（原子替换 + 备份）。返回 (ok, 错误信息)。"""
+    return _write_config_sites(sites)
+
+
+def _read_config():
+    """读整个 sites.yaml。返回 dict（失败或不存在返回空 dict）。"""
+    with _sites_lock:
+        if not os.path.exists(SITES_FILE):
+            return {}
+        try:
+            with open(SITES_FILE, encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except Exception:
+            bak = SITES_FILE + ".bak"
+            if os.path.exists(bak):
+                try:
+                    with open(bak, encoding="utf-8") as f:
+                        return yaml.safe_load(f) or {}
+                except Exception:
+                    return {}
+            return {}
+
+
+def _write_config(config):
+    """原子写回整个 sites.yaml。返回 (ok, 错误信息)。"""
     text = yaml.safe_dump(
-        {"sites": sites},
+        config,
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,
@@ -165,6 +257,40 @@ def save_sites(sites):
     if not ok:
         print(f"[config] 写入 sites.yaml 失败：{err}")
     return ok, err
+
+
+def _write_config_sites(sites):
+    """只替换站点数组，**保留其它顶层键**。
+
+    这点很重要：`startup_mode` 这类设置就存在同一个文件的顶层。
+    早期实现直接写 `{"sites": sites}`，会把它们整块抹掉 ——
+    用户点一次「应用」，启动行为设置就悄悄回到默认值。
+    """
+    config = _read_config()
+    config["sites"] = sites
+    return _write_config(config)
+
+
+STARTUP_MODE_KEY = "startup_mode"
+STARTUP_MODE_DEFAULT = "silent"
+
+
+def load_startup_mode():
+    """启动行为：'silent'（静默，默认）或 'visible'（直接显示界面）。
+
+    老用户的 sites.yaml 里没有这个键 —— 用默认值兜底，不要报错。
+    """
+    mode = _read_config().get(STARTUP_MODE_KEY, STARTUP_MODE_DEFAULT)
+    return mode if mode in ("silent", "visible") else STARTUP_MODE_DEFAULT
+
+
+def save_startup_mode(mode):
+    """写回启动行为。返回 (ok, 错误信息)。"""
+    if mode not in ("silent", "visible"):
+        return False, f"未知的启动行为：{mode}"
+    config = _read_config()
+    config[STARTUP_MODE_KEY] = mode
+    return _write_config(config)
 
 
 
@@ -248,11 +374,13 @@ def fetch_all():
     """
     # 先等网络就绪（开机自启动时可能比系统联网更快）
     if not wait_for_network(timeout=120):
+        _emit_progress("检查网络… 失败")
         return [], [{
             "site_name": "网络",
             "message": "等待网络连接超时（120 秒），请检查网络后点「刷新任务」重试",
         }], []
 
+    _emit_progress("检查网络… 已连接")
     # 各站点并行抓取：每个站点用独立 context，互不共享状态，因此可以同时跑。
     # 实测（本机 6 个站点）：并发 1 → 23.1s，并发 2 → 9.8s，
     # 并发 3 → 8.1s，并发 4/6 → 8.7~8.8s（不再变快，瓶颈是最慢的那个站）。
@@ -377,18 +505,26 @@ def _fetch_one_site(site):
 
 
 def _fetch_one_site_locked(site):
+    """抓一个站点。
+
+    每个 return 之前都播报结果 —— 这是唯一需要维护的进度挂钩点。
+    """
     homeworks, errors, need_login = [], [], []
+    _emit_progress(f"[{_site_label(site)}] 开始抓取")
+
     adapter = REGISTRY.get(site.get("type"))
     if not adapter:
         errors.append({
             "site_name": site.get("name", site.get("id")),
             "message": f"未知类型 {site.get('type')}",
         })
+        _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
         return homeworks, errors, need_login
 
     try:
         items = adapter.fetch_homeworks(site, DATA_DIR)
         homeworks.extend(items)
+        _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
         return homeworks, errors, need_login
     except LoginRequiredError:
         pass
@@ -401,6 +537,7 @@ def _fetch_one_site_locked(site):
                 "site_name": site.get("name", site.get("id")),
                 "message": f"{type(e).__name__}: {e}",
             })
+            _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
             return homeworks, errors, need_login
 
     # ---------- 会话失效：尝试后台静默重登 ----------
@@ -408,6 +545,7 @@ def _fetch_one_site_locked(site):
         try:
             items = adapter.fetch_homeworks(site, DATA_DIR)
             homeworks.extend(items)
+            _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
             return homeworks, errors, need_login
         except LoginRequiredError:
             pass
@@ -416,10 +554,12 @@ def _fetch_one_site_locked(site):
                 "site_name": site.get("name", site.get("id")),
                 "message": f"{type(e).__name__}: {e}",
             })
+            _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
             return homeworks, errors, need_login
 
     # 静默登录不可用 / 失败 → 交给前端提示（reason 让前端能给出更准确的话术）
     need_login.append(_need_login_entry(site))
+    _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
     return homeworks, errors, need_login
 
 
