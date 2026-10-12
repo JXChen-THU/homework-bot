@@ -166,7 +166,7 @@ function renderBanners(errors, needLogin, startup) {
   if (errors && errors.length) {
     html += '<div class="banner err">';
     errors.forEach(e => {
-      html += `<div>⚠️ ${escapeHtml(e.site_name)}：${escapeHtml(e.message)}</div>`;
+      html += `<div>${escapeHtml(e.site_name)}：${escapeHtml(e.message)}</div>`;
     });
     html += '</div>';
   }
@@ -237,7 +237,6 @@ function render() {
     if (currentTab === 'todo') {
       content.innerHTML = `
         <div class="empty">
-          <div class="big">🎉</div>
           <div class="msg">所有任务都已完成，太棒了！</div>
         </div>`;
     } else {
@@ -368,7 +367,7 @@ async function load() {
   } finally {
     refreshBtn.disabled = false;
     loadingHint.textContent = '';
-    // 抓取结束 → 收起并清空，不保留最后几行
+    // 抓取结束后收起并清空，不保留最后几行
     hideProgress();
   }
 }
@@ -510,7 +509,7 @@ function renderSites() {
 
     let credBadge = '';
     let credBtn = '';
-    // 雨课堂靠微信扫码，不需要账号密码；其余站点都支持「填账号密码 → 后台静默登录」
+    // 雨课堂靠微信扫码，不需要账号密码；其余站点都支持「填账号密码后后台静默登录」
     if (s.type !== 'yuketang') {
       if (s.credentials_broken) {
         // 换了电脑或 Windows 账户，密文解不开
@@ -588,7 +587,7 @@ document.getElementById('apply-sites-btn').addEventListener('click', async () =>
   try {
     // 必须接返回值：写 sites.yaml 失败时后端是正常返回 {"error": ...}，
     // 不会抛异常，所以下面的 catch 接不到。不判 error 就会在写盘失败后
-    // 显示「✓ 已应用」，紧接着 refreshSitesPanel() 从磁盘重载，开关/删除
+    // 显示「已应用」，紧接着 refreshSitesPanel() 从磁盘重载，开关/删除
     // 全部静默回滚，用户完全不知道发生了什么。
     r = await window.pywebview.api.apply_sites_changes(siteDraft);
   } catch (err) {
@@ -603,10 +602,10 @@ document.getElementById('apply-sites-btn').addEventListener('click', async () =>
   }
   settingsForceRefresh = true;
   await refreshSitesPanel();
-  applyHint.textContent = '✓ 已应用';
+  applyHint.textContent = '已应用';
   applyHint.className = 'apply-hint ok';
   setTimeout(() => {
-    if (applyHint.textContent === '✓ 已应用') {
+    if (applyHint.textContent === '已应用') {
       applyHint.textContent = '';
       applyHint.className = 'apply-hint';
     }

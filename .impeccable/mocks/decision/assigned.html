@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>借阅凭条与到期日戳</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 720px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #efe9dd; color: #1b2430;
+  }
+  .head {
+    height: 56px; display: flex; align-items: center; gap: 16px;
+    padding: 0 22px; background: #1b2430; color: #f2ede2;
+  }
+  .brand { font-size: 19px; font-weight: 600; letter-spacing: .02em; }
+  .head .nearest { font-size: 12px; color: #b9b2a4; }
+  .head .spacer { flex: 1; }
+  .head button {
+    font: inherit; font-size: 13px; height: 32px; padding: 0 14px;
+    background: transparent; color: #e8e2d6; border: 1px solid #4a525c;
+    border-radius: 2px; cursor: pointer;
+  }
+  .head button.primary { background: #f2ede2; color: #1b2430; border-color: #f2ede2; font-weight: 600; }
+
+  .tabs {
+    height: 46px; display: flex; align-items: center; gap: 22px;
+    padding: 0 22px; background: #fffdf7; border-bottom: 1px solid #d8d2c4;
+  }
+  .tab { font-size: 14px; color: #5c6672; padding-bottom: 2px; }
+  .tab.on { color: #1b2430; font-weight: 600; border-bottom: 1px solid #1b2430; }
+  .tabs .count { font-family: Consolas, monospace; font-size: 13px; color: #8d867a; }
+  .tabs .spacer { flex: 1; }
+  .tabs .note { font-size: 12px; color: #8d867a; }
+
+  .list { height: 574px; background: #fffdf7; margin: 0 22px; }
+  .row {
+    display: flex; align-items: center; gap: 14px; height: 64px;
+    padding: 0 18px; border-bottom: 1px solid #ece6d9;
+  }
+  .row:hover { background: #faf6ec; }
+  .box { width: 24px; height: 24px; border: 1px solid #a9a196; border-radius: 2px; flex: none; }
+  .box.done { background: #5c6672; border-color: #5c6672; }
+
+  .body { flex: 1; min-width: 0; }
+  .title { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+  .row.done .title { font-weight: 400; color: #8d867a; text-decoration: line-through; text-decoration-thickness: 1px; }
+  .sub { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6d6659; }
+  .tag { border: 1px solid #d8d2c4; border-radius: 2px; padding: 1px 6px; color: #5c6672; }
+  .tag.manual { border-style: dashed; }
+  .due { color: #8d867a; }
+
+  .cut { width: 1px; height: 40px; border-left: 1px dashed #cfc7b8; flex: none; }
+
+  .stamp { width: 138px; flex: none; text-align: center; padding: 4px 0; border-radius: 2px; }
+  .stamp .mark { font-size: 11px; letter-spacing: .22em; color: #6d6659; }
+  .stamp .fig {
+    font-family: Consolas, monospace; font-size: 21px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  }
+  .stamp .fig small { font-size: 12px; font-weight: 400; margin-left: 3px; }
+  .stamp.soon { border: 1px solid #a4262c; color: #a4262c; transform: rotate(-1.4deg); }
+  .stamp.soon .mark { color: #a4262c; }
+  .stamp.overdue { border: 1px solid #a4262c; background: #f6e6e4; color: #a4262c; transform: rotate(-1.4deg); }
+  .stamp.overdue .mark { color: #a4262c; }
+  .stamp.returned { border: 1px solid #bdb5a6; color: #8d867a; }
+  .stamp.returned .fig { font-size: 15px; letter-spacing: .1em; }
+  .stamp.plain .fig { color: #1b2430; font-size: 17px; }
+
+  .foot {
+    height: 44px; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 22px; font-family: Consolas, monospace; font-size: 12px; color: #6d6659;
+  }
+</style>
+</head>
+<body>
+  <header class="head">
+    <div class="brand">作业清单</div>
+    <div class="nearest">最近到期 · 今天 18:30</div>
+    <div class="spacer"></div>
+    <button class="primary">添加任务</button>
+    <button>刷新任务</button>
+    <button>重置浮窗</button>
+    <button>设置</button>
+  </header>
+
+  <div class="tabs">
+    <span class="tab on">未完成 <span class="count">6</span></span>
+    <span class="tab">已完成 <span class="count">2</span></span>
+    <div class="spacer"></div>
+    <span class="note">按到期时间排序 · 今天 4 项</span>
+  </div>
+
+  <main class="list">
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">第三次上机实验报告</div>
+        <div class="sub"><span class="tag">数据结构</span><span class="tag">清华 OJ</span><span class="due">截止 今天 18:30</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp soon"><div class="mark">还剩</div><div class="fig">2.5<small>小时</small></div></div>
+    </article>
+
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">第 5 章课后习题</div>
+        <div class="sub"><span class="tag">编译原理</span><span class="tag">网络学堂</span><span class="due">截止 今天 23:59</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp soon"><div class="mark">还剩</div><div class="fig">8.4<small>小时</small></div></div>
+    </article>
+
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">期中听力测试</div>
+        <div class="sub"><span class="tag">大学英语</span><span class="tag">U 校园</span><span class="due">截止 昨天 23:59</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp overdue"><div class="mark">已过期</div><div class="fig">5.2<small>小时</small></div></div>
+    </article>
+
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">第五次随堂测验</div>
+        <div class="sub"><span class="tag">概率论</span><span class="tag">雨课堂</span><span class="due">截止 10-15 12:00</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp plain"><div class="mark">还剩</div><div class="fig">2<small>天</small> 3<small>小时</small></div></div>
+    </article>
+
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">读论文并准备组会汇报</div>
+        <div class="sub"><span class="tag manual">手动</span><span class="tag">组会</span><span class="due">截止 10-18 09:00</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp plain"><div class="mark">还剩</div><div class="fig">6<small>天</small> 4<small>小时</small></div></div>
+    </article>
+
+    <article class="row">
+      <div class="box"></div>
+      <div class="body">
+        <div class="title">形式语言与自动机作业三</div>
+        <div class="sub"><span class="tag">编译原理</span><span class="tag">网络学堂</span><span class="due">截止 10-21 23:59</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp plain"><div class="mark">还剩</div><div class="fig">9<small>天</small> 8<small>小时</small></div></div>
+    </article>
+
+    <article class="row done">
+      <div class="box done"></div>
+      <div class="body">
+        <div class="title">第二章作业</div>
+        <div class="sub"><span class="tag">编译原理</span><span class="tag">网络学堂</span><span class="due">已于 10-09 提交</span></div>
+      </div>
+      <div class="cut"></div>
+      <div class="stamp returned"><div class="mark">已还</div><div class="fig">10-09</div></div>
+    </article>
+  </main>
+
+  <footer class="foot">
+    <span>共 7 项 · 未完成 6 · 已完成 2</span>
+    <span>数据目录 D:\HomeworkTasks\data</span>
+  </footer>
+</body>
+</html>

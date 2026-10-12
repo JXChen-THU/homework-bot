@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>同人场刊目录</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 720px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f2efe6; color: #1a1a18;
+  }
+  .head { height: 54px; display: flex; align-items: center; gap: 14px; padding: 0 20px; border-bottom: 1px solid #1a1a18; }
+  .brand { font-size: 20px; font-weight: 700; letter-spacing: .04em; }
+  .issue { font-size: 11px; letter-spacing: .18em; color: #6b665c; }
+  .head .spacer { flex: 1; }
+  .head button {
+    font: inherit; font-size: 12px; height: 28px; padding: 0 11px;
+    background: transparent; color: #1a1a18; border: 1px solid #1a1a18; cursor: pointer;
+  }
+  .head button.spot { background: #b3261e; border-color: #b3261e; color: #f2efe6; font-weight: 600; }
+
+  .strip { height: 34px; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-bottom: 1px solid #cfc9bb; font-size: 10.5px; letter-spacing: .1em; color: #6b665c; }
+  .strip b { color: #1a1a18; }
+
+  .grid { display: grid; grid-template-columns: repeat(6, 1fr); height: 512px; border-bottom: 1px solid #1a1a18; }
+  .cell { border-right: 1px solid #cfc9bb; border-bottom: 1px solid #cfc9bb; padding: 7px 8px; position: relative; overflow: hidden; }
+  .cell:nth-child(6n) { border-right: none; }
+  .thumb { height: 42px; background: #1a1a18; opacity: .88; margin-bottom: 6px; }
+  .cell.big .thumb { background: repeating-linear-gradient(45deg, #1a1a18 0 1px, #f2efe6 1px 5px); }
+  .ttl { font-size: 11.5px; line-height: 1.35; height: 32px; overflow: hidden; }
+  .code { font-family: Consolas, monospace; font-size: 10px; letter-spacing: .06em; color: #6b665c; margin-top: 4px; }
+  .left { font-family: Consolas, monospace; font-size: 11px; margin-top: 2px; }
+  .left.hot { font-weight: 700; }
+  .ring { position: absolute; top: 4px; left: 4px; right: 4px; bottom: 4px; border: 1px solid #b3261e; border-radius: 50%; transform: rotate(-4deg) scaleX(1.04); }
+  .struck { position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid #1a1a18; transform: rotate(-6deg); }
+  .cell.done .ttl, .cell.done .code { color: #8d887c; }
+
+  .map { height: 76px; padding: 10px 20px 0; }
+  .map .cap { font-size: 10px; letter-spacing: .18em; color: #6b665c; }
+  .halls { display: flex; gap: 10px; margin-top: 7px; }
+  .hall { flex: 1; border: 1px solid #1a1a18; padding: 5px 8px; font-size: 10.5px; }
+  .hall .n { font-family: Consolas, monospace; font-size: 10px; color: #6b665c; display: block; margin-top: 2px; }
+  .map .foot { margin-top: 7px; font-size: 10px; letter-spacing: .1em; color: #6b665c; display: flex; justify-content: space-between; }
+  .spot { color: #b3261e; }
+</style>
+</head>
+<body>
+  <header class="head">
+    <div class="brand">作业清单</div>
+    <div class="issue">场刊 · 第 8 期 · 10-12 至 10-18</div>
+    <div class="spacer"></div>
+    <button class="spot">添加任务</button>
+    <button>刷新任务</button>
+    <button>重置浮窗</button>
+    <button>设置</button>
+  </header>
+
+  <div class="strip">
+    <span>未完成 <b>6</b></span><span>已完成 <b>2</b></span><span>冲突 <b class="spot">1</b></span>
+    <span>当前项被钢笔圈住</span><span>逛过的被手工划掉</span>
+    <span style="flex:1"></span><span>按台号排序</span>
+  </div>
+
+  <section class="grid">
+    <div class="cell"><div class="ring"></div><div class="thumb"></div><div class="ttl">第三次上机实验报告</div><div class="code">OJ-02 · 数据结构</div><div class="left hot">剩 2⅓ 时</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">第 5 章课后习题</div><div class="code">网-01 · 编译原理</div><div class="left hot">剩 8⅔ 时</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">期中听力测试</div><div class="code">U-05 · 大学英语</div><div class="left hot">过期 5⅓ 时</div></div>
+    <div class="cell big"><div class="thumb"></div><div class="ttl">第五次随堂测验</div><div class="code">雨-03 · 概率论</div><div class="left">剩 2⅓ 天</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">读论文并准备组会汇报</div><div class="code">手-06 · 组会</div><div class="left">剩 6⅓ 天</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">形式语言与自动机作业三</div><div class="code">网-01 · 编译原理</div><div class="left">剩 9⅔ 天</div></div>
+
+    <div class="cell done"><div class="struck"></div><div class="thumb" style="background:#8d887c"></div><div class="ttl">第二章作业</div><div class="code">网-01 · 编译原理</div><div class="left">10-09 交</div></div>
+    <div class="cell done"><div class="struck"></div><div class="thumb" style="background:#8d887c"></div><div class="ttl">实验一预习报告</div><div class="code">OJ-02 · 数据结构</div><div class="left">10-08 交</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">第十章读书笔记</div><div class="code">数-04 · 数你最灵</div><div class="left">剩 12 天</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">概率论第三章习题</div><div class="code">雨-03 · 概率论</div><div class="left">剩 11 天</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">英语听力 unit 6</div><div class="code">U-05 · 大学英语</div><div class="left">剩 8 天</div></div>
+    <div class="cell"><div class="thumb"></div><div class="ttl">组会 PPT 初稿</div><div class="code">手-06 · 组会</div><div class="left">剩 6 天</div></div>
+  </section>
+
+  <div class="map">
+    <div class="cap">站点分区图 · 台号前缀对应平台</div>
+    <div class="halls">
+      <div class="hall">清华 OJ<span class="n">OJ-01…04</span></div>
+      <div class="hall">网络学堂<span class="n">网-01…08</span></div>
+      <div class="hall">雨课堂<span class="n">雨-03…09</span></div>
+      <div class="hall">数你最灵<span class="n">数-04…10</span></div>
+      <div class="hall">U 校园<span class="n">U-05…12</span></div>
+      <div class="hall">手动<span class="n">手-06…14</span></div>
+    </div>
+    <div class="foot"><span>共 8 项 · 未完成 6 · 冲突 1（雨课堂需扫码登录）</span><span>数据留在本机 · D:\HomeworkTasks\data</span></div>
+  </div>
+</body>
+</html>

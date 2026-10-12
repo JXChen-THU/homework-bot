@@ -1,0 +1,103 @@
+{
+  "title": "选择视觉世界 · 重掷（bolder）",
+  "question": "这是 bolder 寄存器重掷的一手：6 个外来形式全部与产品融合后呈现，第一个派发者领衔。保留它、换成备选，还是再掷一次？",
+  "options": [
+    {
+      "id": "operate-b-exposure-record-zone-sheets",
+      "label": "曝光记录与区域梯",
+      "kicker": "THE ROLL",
+      "lineage": "暗房曝光记录 + 11 级区域梯（Zone System）",
+      "thesis": "每条作业按「还剩多久」落在 11 级灰阶的某一级上；冲突用交叉网线表示，而不是再加一种颜色。",
+      "palette": ["#fbfbfc", "#c3c8cf", "#6d7480", "#1b1e23", "#e0357f"],
+      "materials": ["半透明描图纸叠层", "曝光记录卡", "网点与网线", "背光台"],
+      "viewport": "背光浅底上是一张曝光记录卡：顶栏是最深的一级作为机壳，其下是区域梯图例；每行左侧是标题与站点，右侧一格是按紧急度取的灰阶区域，上面叠着网线密度，行尾是等宽分数的剩余时间。",
+      "risk": "灰阶加网线容易读成暗房工具；网线绝不能压住中文正文，图例感也要克制。",
+      "raised": [
+        { "from": "brand-identity-canon-saville-catalog-sleeve", "raise": "让剩余时间那一列占据大片没有印刷的空白：数字是唯一的主角。" },
+        { "from": "notation-diagram-systems-star-atlas", "raise": "层级由尺寸承担：越紧急字号越大，不靠再加一种颜色。" },
+        { "from": "digital-design-canon-metro-typographic-tiles", "raise": "删掉按钮装饰，标签本身就是界面；一个强调色统领所有活动状态。" }
+      ],
+      "html": ".impeccable/mocks/decision/operate-b-exposure-record-zone-sheets.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "pop-culture-shelf-doujin-event-catalog",
+      "label": "同人场刊目录",
+      "verdict": "competitive",
+      "lineage": "漫展场刊（新闻纸、邮票大缩略图、台号网格）",
+      "thesis": "全部作业压成一张密排场刊：每格一个作品，带台号，逛过的手工划掉。",
+      "palette": ["#f2efe6", "#1a1a18", "#b3261e"],
+      "materials": ["新闻纸", "单色黑", "一个专色", "钢笔圈划"],
+      "viewport": "编号网格铺满整屏，每格是一枚邮票大的作业缩略格，格下是标题与课程台号；当前项被钢笔圈住，完成的被手工划掉，底部是站点分区图。",
+      "case": "融合良好：场刊的密排网格与「台号」编码对中文学生受众认同很强。但把标题压到邮票大小会牺牲可读性，所以它只在一个轴上赢过领衔方向。",
+      "risk": "标题太小就读不成清单，只能当总览。",
+      "html": ".impeccable/mocks/decision/pop-culture-shelf-doujin-event-catalog.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "vernacular-ephemera-cassette-j-card",
+      "label": "磁带 J-card 曲目单",
+      "verdict": "competitive",
+      "lineage": "手工磁带的内页卡（ballpoint 曲目、A/B 面、running time）",
+      "thesis": "A 面是未完成、B 面是已完成；每条的剩余时间像曲目时长一样右对齐顶到页边。",
+      "palette": ["#ffffff", "#2a3f8f", "#8a8a86", "#c8102e"],
+      "materials": ["白色横线内页纸", "圆珠笔蓝", "铅笔灰", "品牌色条"],
+      "viewport": "一张摊平的内页卡：左侧是脊标与封面（最近到期），右侧是圆珠笔排的曲目单，A 面与 B 面各带下划线抬头，时长右对齐贴着页边。",
+      "case": "融合良好：A/B 面天然对应未完成与已完成，running time 右对齐正好落入剩余时间列。但磁带本身是复古物件，受众认同只到中等。",
+      "risk": "离线环境没有手写字体，只能用系统楷体近似，笔迹感会打折。",
+      "html": ".impeccable/mocks/decision/vernacular-ephemera-cassette-j-card.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "brand-identity-canon-saville-catalog-sleeve",
+      "label": "目录封套编号系统",
+      "verdict": "declined",
+      "lineage": "factory records 目录封套（编号即标题、色块代替名字）",
+      "thesis": "课程名被编码成色条，只有编号是标题。",
+      "palette": ["#111111", "#f5f5f5", "#e0357f", "#3ba7c4"],
+      "materials": ["哑黑卡纸", "白色细线图", "色块编码"],
+      "viewport": "哑黑底上巨大的空白与一个编号，一条脉冲细线占住整幅，色块条代替文字。",
+      "case": "融合不佳：把课程名换成色块、只剩编号，读不出是哪门作业；受众也不认识这套目录语言。",
+      "kept": "让大片空白与一个数字承担全部注意力。",
+      "risk": "编号系统让信息反而更难读。"
+    },
+    {
+      "id": "notation-diagram-systems-star-atlas",
+      "label": "星图坐标板",
+      "verdict": "declined",
+      "lineage": "天体星图（星等=点径、坐标网格、夜视红）",
+      "thesis": "作业是坐标上的星点，星等就是紧急度。",
+      "palette": ["#101a2e", "#f2f4f7", "#c8791f"],
+      "materials": ["深蓝图版", "粉白星点", "夜视红标注"],
+      "viewport": "深蓝底上一片按星等缩放的点，坐标网格铺满，星座线在数据下隐隐浮现。",
+      "case": "融合不佳：坐标系会把「还剩几天」这件事实质上藏起来，学生扫不到自己要交什么。",
+      "kept": "用尺寸而不是颜色承载层级。",
+      "risk": "把清单变成图版，任务就找不到了。"
+    },
+    {
+      "id": "digital-design-canon-metro-typographic-tiles",
+      "label": "地铁字砖",
+      "verdict": "declined",
+      "lineage": "metro 字砖（平色方块、巨字出画、零装饰）",
+      "thesis": "一块方块一条作业，字本身就是界面。",
+      "palette": ["#000000", "#00c8d7", "#e0357f", "#b6e21f"],
+      "materials": ["平色方块", "巨字裁切", "零渐变"],
+      "viewport": "纯黑底上一列平色方块，巨字从左缘裁出画面，没有任何按钮装饰。",
+      "case": "融合不佳：方块网格每屏能看到的条目远少于行式列表，扫清单变慢；受众认同也只到中等。",
+      "kept": "删掉按钮装饰，一个强调色统领所有活动状态。",
+      "risk": "为了风格牺牲每屏信息量。"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code" },
+  "canon": true,
+  "canonCard": {
+    "label": "这个类别的标准做法",
+    "thesis": "干净网格 + 单一蓝强调 + 中性灰，工艺做满。",
+    "palette": ["#ffffff", "#111827", "#2563eb"],
+    "materials": ["干净网格", "统一圆角"],
+    "viewport": "一眼认得出的待办应用：顶栏、标签页、白色卡片列表、蓝色主按钮。",
+    "risk": "按设计如此，与竞品无法区分。"
+  },
+  "steer": true
+}

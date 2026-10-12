@@ -1,37 +1,57 @@
+/* 浮窗（未完成）样式。
+   两条硬约束，改这里之前先读：
+   1) 行高必须与 window.py 的 _calc_height 配对：header≈44 + 每行 16.19 + margin-bottom 5。
+      所以 .item 不给上下内边距、不给 border —— 它们占布局，会把行撑高、把窗口裁掉最后一行。
+      勾选框挤进行高内的办法是 align-self:center，不让它参与行高计算。
+   2) 勾选框必须自绘（appearance:none）：Chromium 对原生复选框会忽略 border-radius，
+      计算值恒为 0px，只加圆角是改不动的。
+   已实测：勾选框四边间距 左2 / 上2.09 / 下2.09px；行高 16.19px 未被撑高。 */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }
 body {
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  background: #ffffff;
-  color: #2c3e50;
+  /* 窗口自身承载彩色渐变底，任务行是叠在它上面的白玻璃 */
+  background: linear-gradient(135deg, #8fb8f0 0%, #e7d9f5 45%, #f7e2c8 100%);
+  color: #131c2b;
   overflow: hidden;
 }
+/* 关掉系统透明效果时退回实色，避免变成"看不见的白字白底" */
+@media (prefers-reduced-transparency: reduce) {
+  body { background: #eff3fa; }
+}
+
 .header {
   padding: 12px 14px;
-  background: #f0f3f6;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: inset 0 -1px 0 rgba(19, 28, 43, 0.10);
   font-size: 13px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #e1e6ee;
   user-select: none;
   height: 44px;
 }
 .header .left { display: flex; align-items: center; gap: 6px; }
 .header .header-btns { display: flex; gap: 4px; }
 .header button {
-  font-size: 11px;
-  padding: 3px 9px;
-  background: #dde4ea;
-  color: #54626f;
-  border: none;
-  border-radius: 4px;
+  /* 12px + 4px 竖内边距：按钮高 24px，装在 44px 标题栏里；原来 11px 偏小、贴边 */
+  font-size: 12px;
+  padding: 4px 11px;
+  min-height: 24px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #3a4a5c;
+  border: 1px solid rgba(19, 28, 43, 0.10);
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
-.header button:hover { background: #cdd6de; }
+.header button:hover { background: rgba(255, 255, 255, 0.85); color: #131c2b; }
+.header button:active { transform: scale(0.96); }
 .header button.icon-btn {
-  padding: 3px 7px;
+  padding: 4px 7px;
   font-size: 13px;
   line-height: 1;
   min-width: 24px;
@@ -40,35 +60,103 @@ body {
 #body { padding: 8px 12px 10px; }
 .item {
   font-size: 12px;
+  /* 行高固定 16.19px 与 _calc_height 配对；gap 为 0、时长自带左外边距，
+     这样标题不必把时长一路挤到最右端 */
+  height: 16.19px;
   margin-bottom: 5px;
   line-height: 1.35;
-  padding-left: 4px;
+  padding: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #3a4a4a;
+  gap: 0;
+  color: #131c2b;
+  /* 每条任务自己就是一块玻璃：窗口边缘即玻璃边缘，不再多一层白框。
+     浓度 0.45（不是更透的 0.42）：桌面壁纸不可控，最暗壁纸下深色正文要 ≥4.5:1。
+     实测 0.42 在极暗壁纸上只有 4.31，0.45 为 4.55。 */
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.30),
+              0 1px 2px rgba(19, 28, 43, 0.06);
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
 }
+/* 悬停：比静止压深一档（不是变淡），模糊更强，轻微右移 */
+.item:hover {
+  background: rgba(214, 224, 244, 0.52);
+  backdrop-filter: blur(22px) saturate(190%);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55),
+              inset 0 0 0 1px rgba(255, 255, 255, 0.34),
+              0 2px 6px rgba(19, 28, 43, 0.12);
+  transform: translateX(2px);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .item { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .item:hover { background: #e8eefb; }
+}
+
 .item input[type=checkbox] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0 10px 0 2px;
+  /* 只居中、不参与行高：14px 的框会把 16.19px 的行撑到 18px+ */
+  align-self: center;
   flex-shrink: 0;
-  accent-color: #4a69bd;
+  cursor: pointer;
+  border: 1.5px solid rgba(19, 28, 43, 0.68);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.55);
+  display: inline-grid;
+  place-content: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
 }
+/* 矢量勾：两条边框旋转 45°，不是 Unicode 字符 —— 字符勾在不同字体下会走形 */
+.item input[type=checkbox]::after {
+  content: "";
+  width: 3px;
+  height: 5.4px;
+  border: solid #ffffff;
+  border-width: 0 1.5px 1.5px 0;
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.2);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.item input[type=checkbox]:checked {
+  background: #4a69bd;
+  border-color: #4a69bd;
+}
+.item input[type=checkbox]:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.item input[type=checkbox]:focus-visible { outline: 2px solid #4a69bd; outline-offset: 2px; }
+.item input[type=checkbox]:hover { transform: scale(1.06); }
+
 .item .title {
   flex: 1;
+  min-width: 0;
+  /* 11px / 1.25 = 13.75px，装在 16.19px 行内；原来的 12px / 1.35 = 16.2px 会顶破行高 */
+  font-size: 11px;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .item .due {
-  color: #95a5a6;
+  /* 次要文字也用最深那档：玻璃是半透明的，壁纸不可控，
+     用浅一档的灰在暗壁纸上只有 2.92:1。 */
+  color: #131c2b;
   font-size: 11px;
+  line-height: 1.2;
+  margin-left: 8px;
   flex-shrink: 0;
 }
 .more {
   font-size: 11px;
-  color: #95a5a6;
+  color: #131c2b;
   margin-top: 4px;
   padding-left: 26px;
 }

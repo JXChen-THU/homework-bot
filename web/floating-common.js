@@ -70,7 +70,41 @@ function update(items) {
     checkbox.addEventListener('change', async event => {
       event.stopPropagation();
       checkbox.disabled = true;
-      try { await api().toggle_done(checkbox.dataset.uid, true); } catch (_) {}
+      let failed = false;
+      try {
+        await api().toggle_done(checkbox.dataset.uid, true);
+      } catch (_) {
+        failed = true;
+      }
+      /* 保存失败不能把这条滑走：滑走等于界面单方面宣布"已完成"，
+         而主面板读的是后端状态，两边就此不一致（浮窗在说谎）。
+         失败时把勾退回并解禁，浮窗保持原样，交给下一轮刷新收敛。 */
+      if (failed) {
+        checkbox.checked = false;
+        checkbox.disabled = false;
+        return;
+      }
+      /* 勾完这条就被移出浮窗：向右滑走（横向位移 + 淡出），动画结束后删掉这个 DOM 节点。
+         纯 CSS 做不到这件事——窗口高度和行距由 controller._calc_height 与 flex 排布决定，
+         不删节点就会留一条空行，下面的任务也不会补位。
+         位移只有 X，不影响任何纵向几何；动画结束后 fill 随节点一起回收，不需要常驻 will-change。 */
+      const row = checkbox.closest('.item');
+      if (!row) return;
+      let anim;
+      try {
+        anim = row.animate(
+          [
+            { transform: 'translateX(0)', opacity: 1 },
+            { transform: 'translateX(18px)', opacity: 0.25, offset: 0.55 },
+            { transform: 'translateX(46px)', opacity: 0 },
+          ],
+          { duration: 240, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' }
+        );
+      } catch (_) {
+        row.remove();          // 不支持 Web Animations 就直接移除，不留下卡住的行
+        return;
+      }
+      anim.addEventListener('finish', () => row.remove());
     });
   });
 }

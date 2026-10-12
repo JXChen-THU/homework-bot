@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>曝光记录与区域梯</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 720px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #fbfbfc; color: #1b1e23;
+  }
+  .shell {
+    height: 56px; background: #1b1e23; color: #f3f4f6;
+    display: flex; align-items: center; gap: 14px; padding: 0 22px;
+  }
+  .brand { font-size: 18px; font-weight: 600; }
+  .shell .lg { font-size: 10.5px; letter-spacing: .16em; color: #979da8; text-transform: uppercase; }
+  .shell .spacer { flex: 1; }
+  .shell button {
+    font: inherit; font-size: 12.5px; height: 30px; padding: 0 12px;
+    background: transparent; color: #dcdfe4; border: 1px solid #5c626d; border-radius: 2px; cursor: pointer;
+  }
+  .shell button.live { color: #e0357f; border-color: #e0357f; font-weight: 600; }
+
+  .legend { height: 52px; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-bottom: 1px solid #dcdfe4; background: #f3f4f6; }
+  .ramp { display: flex; align-items: flex-end; gap: 2px; }
+  .ramp div { width: 26px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 9px; letter-spacing: .04em; }
+  .legend .cap { font-size: 10px; letter-spacing: .14em; color: #7b818d; text-transform: uppercase; }
+  .legend .ex { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #5c626d; }
+  .sw { width: 22px; height: 18px; border: 1px solid #dcdfe4; }
+  .d1 { background-image: repeating-linear-gradient(45deg, #1b1e23 0 1px, transparent 1px 6px); }
+  .d2 { background-image: repeating-linear-gradient(45deg, #1b1e23 0 1px, transparent 1px 4px); }
+  .d3 { background-image: repeating-linear-gradient(45deg, #1b1e23 0 1px, transparent 1px 2.5px); }
+  .dx { background-image: repeating-linear-gradient(45deg, #1b1e23 0 1px, transparent 1px 5px), repeating-linear-gradient(-45deg, #1b1e23 0 1px, transparent 1px 5px); }
+
+  .list { height: 568px; padding: 0 22px; background: #fbfbfc; }
+  .row { display: flex; align-items: center; gap: 14px; height: 63px; border-bottom: 1px solid #e9ebee; }
+  .row.deep { background: #f3f4f6; }
+  .row.deepest { background: #e9ebee; }
+  .row.done { background: #e9ebee; }
+  .cb { width: 22px; height: 22px; border: 1px solid #979da8; border-radius: 2px; flex: none; }
+  .cb.on { background: #5c626d; border-color: #5c626d; }
+  .body { flex: 1; min-width: 0; }
+  .t { font-size: 15px; font-weight: 600; }
+  .row.done .t { color: #7b818d; text-decoration: line-through; text-decoration-thickness: 1px; }
+  .meta { font-size: 10.5px; letter-spacing: .1em; color: #7b818d; margin-top: 3px; text-transform: uppercase; }
+  .meta .conf { color: #e0357f; letter-spacing: .1em; }
+
+  .zone { width: 58px; height: 34px; flex: none; display: flex; align-items: center; justify-content: center;
+          font-size: 10px; letter-spacing: .08em; border: 1px solid #dcdfe4; }
+  .load { width: 58px; height: 34px; flex: none; border: 1px solid #dcdfe4; background-color: #fbfbfc; }
+  .delta { width: 118px; text-align: right; flex: none; font-family: Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .delta .n { font-size: 17px; font-weight: 600; }
+  .delta.hot .n { font-size: 22px; }
+  .delta .u { font-size: 11px; color: #7b818d; margin-left: 2px; }
+  .delta.hot .n { color: #0f1114; }
+  .delta.over .n { color: #fbfbfc; background: #1b1e23; padding: 1px 5px; border-radius: 2px; }
+  .delta.gone .n { font-size: 13px; letter-spacing: .1em; color: #7b818d; }
+  .gap { width: 46px; flex: none; }
+  .plain { font-size: 12px; color: #5c626d; border: 1px solid #c9cdd4; border-radius: 2px; padding: 4px 9px; background: transparent; }
+
+  .foot { height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px;
+          background: #f3f4f6; border-top: 1px solid #dcdfe4;
+          font-family: Consolas, monospace; font-size: 11.5px; color: #5c626d; }
+</style>
+</head>
+<body>
+  <header class="shell">
+    <div class="brand">作业清单</div>
+    <div class="lg">曝光记录 · 11 级区域</div>
+    <div class="spacer"></div>
+    <button class="live">添加任务</button>
+    <button>刷新任务</button>
+    <button>重置浮窗</button>
+    <button>设置</button>
+  </header>
+
+  <div class="legend">
+    <span class="cap">区域梯</span>
+    <div class="ramp">
+      <div style="background:#fbfbfc;border:1px solid #dcdfe4">I</div>
+      <div style="background:#f3f4f6">II</div>
+      <div style="background:#e9ebee">III</div>
+      <div style="background:#dcdfe4">IV</div>
+      <div style="background:#c9cdd4">V</div>
+      <div style="background:#b2b7c0">VI</div>
+      <div style="background:#979da8;color:#fff">VII</div>
+      <div style="background:#7b818d;color:#fff">VIII</div>
+      <div style="background:#5c626d;color:#fff">IX</div>
+      <div style="background:#3d434d;color:#fff">X</div>
+      <div style="background:#1b1e23;color:#fff">XI</div>
+    </div>
+    <span class="spacer" style="flex:1"></span>
+    <span class="ex"><span class="sw d1"></span><span class="sw d2"></span><span class="sw d3"></span> 网线密度 = 负载</span>
+    <span class="ex"><span class="sw dx"></span> 两向交叉 = 冲突（抓取失败 / 需登录）</span>
+  </div>
+
+  <main class="list">
+    <article class="row deep">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">第三次上机实验报告</div>
+        <div class="meta">数据结构 · 清华 OJ · 截止 今天 18:30</div>
+      </div>
+      <div class="load d3"></div>
+      <div class="zone" style="background:#5c626d;color:#fff">IX</div>
+      <div class="delta hot"><span class="n">2⅓</span><span class="u">时</span></div>
+      <div class="gap"></div>
+      <button class="plain">链接</button>
+    </article>
+
+    <article class="row deep">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">第 5 章课后习题</div>
+        <div class="meta">编译原理 · 网络学堂 · 截止 今天 23:59</div>
+      </div>
+      <div class="load d2"></div>
+      <div class="zone" style="background:#7b818d;color:#fff">VIII</div>
+      <div class="delta"><span class="n">8⅔</span><span class="u">时</span></div>
+      <div class="gap"></div>
+    </article>
+
+    <article class="row deepest">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">期中听力测试</div>
+        <div class="meta">大学英语 · U 校园 · 截止 昨天 23:59</div>
+      </div>
+      <div class="load d3"></div>
+      <div class="zone" style="background:#1b1e23;color:#fff">XI</div>
+      <div class="delta over"><span class="n">−5⅓</span><span class="u">时</span></div>
+      <div class="gap"></div>
+    </article>
+
+    <article class="row deep">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">第五次随堂测验</div>
+        <div class="meta">概率论 · 雨课堂 · <span class="conf">冲突：需微信扫码登录</span></div>
+      </div>
+      <div class="load dx"></div>
+      <div class="zone" style="background:#b2b7c0">VI</div>
+      <div class="delta"><span class="n">2⅓</span><span class="u">天</span></div>
+      <div class="gap"></div>
+    </article>
+
+    <article class="row">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">读论文并准备组会汇报</div>
+        <div class="meta">组会 · 手动任务 · 截止 10-18 09:00</div>
+      </div>
+      <div class="load d1"></div>
+      <div class="zone" style="background:#dcdfe4">IV</div>
+      <div class="delta"><span class="n">6⅓</span><span class="u">天</span></div>
+      <div class="gap"></div>
+    </article>
+
+    <article class="row">
+      <div class="cb"></div>
+      <div class="body">
+        <div class="t">形式语言与自动机作业三</div>
+        <div class="meta">编译原理 · 网络学堂 · 截止 10-21 23:59</div>
+      </div>
+      <div class="load d1"></div>
+      <div class="zone" style="background:#e9ebee">III</div>
+      <div class="delta"><span class="n">9⅔</span><span class="u">天</span></div>
+      <div class="gap"></div>
+    </article>
+
+    <article class="row done">
+      <div class="cb on"></div>
+      <div class="body">
+        <div class="t">第二章作业</div>
+        <div class="meta">编译原理 · 网络学堂 · 已于 10-09 提交</div>
+      </div>
+      <div class="load"></div>
+      <div class="zone" style="background:#e9ebee;color:#7b818d">II</div>
+      <div class="delta gone"><span class="n">已还</span></div>
+      <div class="gap"></div>
+    </article>
+  </main>
+
+  <footer class="foot">
+    <span>共 7 项 · 未完成 6 · 冲突 1 · 最深区域 1</span>
+    <span>数据留在本机 · D:\HomeworkTasks\data</span>
+  </footer>
+</body>
+</html>

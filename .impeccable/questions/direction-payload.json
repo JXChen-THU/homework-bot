@@ -1,0 +1,130 @@
+{
+  "title": "选择视觉世界",
+  "question": "掷出的方向是「借阅凭条与到期日戳」。保留它、换成备选，还是重掷？",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "借阅凭条与到期日戳",
+      "kicker": "THE ROLL",
+      "lineage": "大学图书馆的借阅凭条与到期日戳卡",
+      "thesis": "每条作业都是一次借阅，到期日由一枚戳印说话。",
+      "palette": ["#1b2430", "#a4262c", "#efe9dd", "#5c6672"],
+      "materials": ["卡纸", "复写凭条", "橡皮章"],
+      "viewport": "主窗口是一张摊开的借阅凭条：左列是作业标题、课程与站点，右列是一列等宽数字的到期戳；顶栏是墨蓝纸条，朱红只出现在戳上。",
+      "risk": "戳印符号用过头就成复古道具；数字列必须先是可读的时间信息，其次才是隐喻。",
+      "raised": [
+        { "from": "ikeda-datamatics", "raise": "等宽数字列成为全屏主节奏：数字本身的对齐就是图形。" },
+        { "from": "jet-age-ticket-wallet", "raise": "完成不消失而是盖印作废：状态用印记表达，行不删除。" },
+        { "from": "orienteering-map", "raise": "底层是一套固定色语言，只有「当前一层」的朱红允许移动。" },
+        { "from": "pop-culture-shelf-character-goods-catalog", "raise": "每行自带固定附属家具（课程牌/站点牌/备注位），不随内容变形。" }
+      ],
+      "html": ".impeccable/mocks/decision/assigned.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "model-pick",
+      "label": "周课表格",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "大学周课表（节次 × 星期）",
+      "thesis": "每条作业挂在它所属的那一周、那一天上。",
+      "palette": ["#ffffff", "#2b3440", "#3b6ea5", "#d9a441"],
+      "materials": ["方格表", "课程色块", "铅笔标注"],
+      "viewport": "横向是星期、纵向是日期分组的表格，作业落在自己的格子里，今天那一列被点亮，格子右侧是剩余时间。",
+      "risk": "课表是所有待办应用都会用的那套熟悉布局，做不好就是普通日历视图。",
+      "html": ".impeccable/mocks/decision/model-pick.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "challenger-dark-console",
+      "label": "暗色开发台",
+      "verdict": "competitive",
+      "lineage": "dark-first developer console",
+      "thesis": "石墨底、1px 缝线代替阴影，破坏性操作被刻意孤立。",
+      "palette": ["#12161b", "#e6edf3", "#4493f8", "#f85149"],
+      "materials": ["石墨面板", "1px 缝线", "等宽数字"],
+      "viewport": "石墨底上分栏面板，用 1px 缝线分隔；主操作只有一个蓝，删除按钮被空白隔开。",
+      "case": "融合良好：CS 学生每天泡在暗色编辑器里。但作为作业清单，石墨控制台有把产品读成开发者工具的风险。",
+      "risk": "在 Operate 场合容易读成开发者工具，而这个产品不是。",
+      "html": ".impeccable/mocks/decision/challenger-dark-console.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "challenger-centre-rail",
+      "label": "中缝索引排版",
+      "verdict": "competitive",
+      "lineage": "centre-rail reference setting",
+      "thesis": "两栏短行文字夹一条中缝索引，每条分隔线都由排线机画到 1 设备像素。",
+      "palette": ["#1a1a18", "#b8332a", "#efe7d8"],
+      "materials": ["铁黑油墨", "朱红索引", "未漂白纸"],
+      "viewport": "左栏是任务，中央一条极窄的索引缝挂着日期键，右栏是宽大的留白边距。",
+      "case": "融合良好：中缝正好能承担「还剩多久」这一列。但它的讲究气质与工具的即时性有张力。",
+      "risk": "过于安静讲究，对每天扫一眼就走的工具屏可能太慢。",
+      "html": ".impeccable/mocks/decision/challenger-centre-rail.html",
+      "htmlFrame": "1000x720"
+    },
+    {
+      "id": "challenger-ikeda",
+      "label": "池田数据场",
+      "verdict": "declined",
+      "lineage": "ikeda-datamatics",
+      "thesis": "把截止时间画成一堵纯黑白的条码墙。",
+      "palette": ["#000000", "#ffffff"],
+      "materials": ["像素条", "等宽数字"],
+      "viewport": "满屏细黑竖条组成的条码场，边缘排满等宽数字。",
+      "case": "融合后受众认同不足：这是数据艺术，不是学生每天要用的东西。",
+      "kept": "等宽数字在极高密度下仍然保持对齐的纪律。",
+      "risk": "抽象到认不出这是作业清单。"
+    },
+    {
+      "id": "challenger-jetage",
+      "label": "喷气时代票夹",
+      "verdict": "declined",
+      "lineage": "1960s 航空票夹与复写联单",
+      "thesis": "每个作业是一张能撕下的联单，作废靠盖章。",
+      "palette": ["#1c2b4a", "#c0392b", "#f4f1e8", "#6b4a7a"],
+      "materials": ["复写纸", "行李牌", "航线图"],
+      "viewport": "一本票夹，一张联单一条作业，撕下即处理完。",
+      "case": "受众认同弱：跨大西洋航班的联单与 2020 年代的中国学生无关。",
+      "kept": "状态用「盖章作废」而不是删除。",
+      "risk": "喷气时代的怀旧不属于这个受众的世界。"
+    },
+    {
+      "id": "challenger-orienteering",
+      "label": "定向越野图",
+      "verdict": "declined",
+      "lineage": "定向越野地图与图例",
+      "thesis": "地形是固定的色语言，路线是压在上面的那一层。",
+      "palette": ["#f7f7f4", "#8a6d3b", "#3f7d4a", "#7a3f9d"],
+      "materials": ["等高线", "图例表", "打卡点"],
+      "viewport": "底图是固定的课程/站点色语言，紫色路线是今天要走的那一条。",
+      "case": "受众认同弱，且等高线底纹会把工具屏变成地图海报。",
+      "kept": "固定底层 + 单一「当前层」的分层纪律。",
+      "risk": "定向越野在中国校园里没有共同记忆。"
+    },
+    {
+      "id": "challenger-goods",
+      "label": "角色商品目录",
+      "verdict": "declined",
+      "lineage": "角色周边图鉴目录",
+      "thesis": "作业像角色图鉴一样排列，每行带名牌与一句性格注。",
+      "palette": ["#f7c8dd", "#fffdf8", "#7fd1c1", "#f2a65a"],
+      "materials": ["柔和粉彩", "圆角名牌", "丝带色"],
+      "viewport": "粉彩格子里排满圆角卡，每张卡下有名字与一行注。",
+      "case": "受众认同中上（周边文化很盛），但产品清晰度低：作业清单不是图鉴。",
+      "kept": "每一行自带固定的附属信息块。",
+      "risk": "粉彩吉祥物会让「交作业」读起来像玩具。"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code" },
+  "canon": true,
+  "canonCard": {
+    "label": "这个类别的标准做法",
+    "thesis": "干净网格 + 单一蓝强调 + 中性灰，工艺做满。",
+    "palette": ["#ffffff", "#111827", "#2563eb"],
+    "materials": ["干净网格", "统一圆角"],
+    "viewport": "一眼认得出的待办应用：顶栏、标签页、白色卡片列表、蓝色主按钮。",
+    "risk": "按设计如此，与竞品无法区分。"
+  },
+  "steer": true
+}

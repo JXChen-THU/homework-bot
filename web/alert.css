@@ -1,37 +1,52 @@
+/* 紧急提醒浮窗样式。
+   与 panel.css 同源，差异只在三处：红橙渐变底、黑字（不是白字）、任务行完全透明。
+   硬约束同 panel.css：行高 16.19px 与 _calc_height 配对，不加 border / 上下内边距。
+   黑字是刻意的：黑字要过 4.5:1 就必须让渐变整体偏亮，
+   所以端点取 #e35a28 / #ea6a30 / #f4894c（黑字 5.43 / 6.22 / 8.04:1）。
+   深红配黑字只有 2.7:1 —— 想要酒红就得换回白字，两者不可兼得。 */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }
 body {
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  background: #e74c3c;
-  color: white;
+  background: linear-gradient(135deg, #e35a28 0%, #ea6a30 55%, #f4894c 100%);
+  color: #0a0a0a;
   overflow: hidden;
 }
+@media (prefers-reduced-transparency: reduce) {
+  body { background: #ea6a30; }
+}
+
 .header {
   padding: 12px 14px;
-  background: #c0392b;
-  color: white;
+  background: linear-gradient(100deg, #e35a28 0%, #ea6a30 100%);
+  box-shadow: inset 0 -1px 0 rgba(10, 10, 10, 0.16);
+  color: #0a0a0a;
   font-size: 13px;
   font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255,255,255,0.35);
   user-select: none;
   height: 44px;
 }
 .header .header-btns { display: flex; gap: 4px; }
 .header button {
-  font-size: 11px;
-  padding: 3px 9px;
-  background: rgba(255,255,255,0.25);
-  color: white;
-  border: none;
-  border-radius: 4px;
+  /* 标题栏是亮的，按钮不能再铺浅白：白 30% 叠上去后白字只剩 2.55:1、黑字 7.77:1。
+     改成压深的实色配白字，得 7.39:1。 */
+  font-size: 12px;
+  padding: 4px 11px;
+  min-height: 24px;
+  background: rgba(90, 20, 10, 0.60);
+  color: #ffffff;
+  border: 1px solid rgba(90, 20, 10, 0.30);
+  border-radius: 8px;
   cursor: pointer;
+  transition: background 0.15s;
 }
-.header button:hover { background: rgba(255,255,255,0.4); }
+.header button:hover { background: rgba(90, 20, 10, 0.78); }
+.header button:active { transform: scale(0.96); }
 .header button.icon-btn {
-  padding: 3px 7px;
+  padding: 4px 7px;
   font-size: 13px;
   line-height: 1;
   min-width: 24px;
@@ -40,36 +55,86 @@ body {
 #list { padding: 8px 12px 10px; }
 .item {
   font-size: 12px;
+  /* 行高固定 16.19px 与 _calc_height 配对；不给上下内边距、不给 border */
+  height: 16.19px;
   margin-bottom: 5px;
   line-height: 1.35;
-  padding-left: 4px;
+  padding: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: white;
+  gap: 0;
+  color: #0a0a0a;
+  /* 真正的透明：不铺底色、不做模糊、不加描边与投影。
+     行只是红橙渐变上的一块留白，渐变直接透出来。 */
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border-radius: 8px;
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
 }
+/* 悬停才给一点点极淡的暗（6%）：压太多会把黑字拖到 4.5 以下（12% 时起点只剩 4.39） */
+.item:hover {
+  background: rgba(10, 10, 10, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(10, 10, 10, 0.14);
+  transform: translateX(2px);
+}
+
 .item input[type=checkbox] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  margin: 0 10px 0 2px;
+  align-self: center;
   flex-shrink: 0;
-  accent-color: #ffffff;
+  cursor: pointer;
+  border: 1.5px solid rgba(10, 10, 10, 0.62);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.30);
+  display: inline-grid;
+  place-content: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
 }
+.item input[type=checkbox]::after {
+  content: "";
+  width: 3px;
+  height: 5.4px;
+  border: solid #ffffff;
+  border-width: 0 1.5px 1.5px 0;
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.2);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.item input[type=checkbox]:checked {
+  background: #5a140a;
+  border-color: #5a140a;
+}
+.item input[type=checkbox]:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.item input[type=checkbox]:focus-visible { outline: 2px solid #0a0a0a; outline-offset: 2px; }
+.item input[type=checkbox]:hover { border-color: rgba(10, 10, 10, 0.85); }
+
 .item .title {
   flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .item .time {
-  opacity: 0.95;
   font-weight: 600;
   font-size: 11px;
+  line-height: 1.2;
+  margin-left: 8px;
   flex-shrink: 0;
 }
 .more {
   font-size: 11px;
-  opacity: 0.85;
+  color: rgba(10, 10, 10, 0.78);
   margin-top: 4px;
   padding-left: 26px;
 }

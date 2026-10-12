@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>暗色开发台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 720px; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #12161b; color: #e6edf3; font-size: 13px;
+  }
+  .panel { background: #161b22; }
+  .seam-b { border-bottom: 1px solid #262d36; }
+  .seam-r { border-right: 1px solid #262d36; }
+
+  header.bar { height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 18px; }
+  .brand { font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+  .brand span { color: #9aa7b4; font-weight: 400; font-size: 12px; margin-left: 8px; }
+  header .spacer { flex: 1; }
+  header button, .rail button {
+    font: inherit; font-size: 12px; height: 30px; padding: 0 12px;
+    background: #1f2630; color: #e6edf3; border: 1px solid #303845;
+    border-radius: 4px; cursor: pointer;
+  }
+  header button.primary { background: #4493f8; border-color: #4493f8; color: #0b1016; font-weight: 600; }
+
+  .wrap { display: flex; height: 668px; }
+  .rail { width: 208px; flex: none; padding: 16px 14px; }
+  .rail h2 { font-size: 10px; letter-spacing: .16em; color: #6e7d8c; margin-bottom: 10px; font-weight: 600; }
+  .rail .item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 8px; border-radius: 4px; color: #c6d1dc; font-size: 12px;
+  }
+  .rail .item.on { background: #1f2733; color: #ffffff; }
+  .rail .item .n { font-family: Consolas, monospace; color: #7d8b9a; font-size: 11px; }
+  .rail .gap { height: 18px; }
+  .rail .filters { display: flex; flex-direction: column; gap: 4px; }
+
+  .main { flex: 1; min-width: 0; }
+  .mainhead { height: 44px; display: flex; align-items: center; gap: 16px; padding: 0 18px; }
+  .mainhead .seg { display: flex; border: 1px solid #303845; border-radius: 4px; overflow: hidden; }
+  .mainhead .seg div { padding: 5px 12px; font-size: 12px; color: #9aa7b4; }
+  .mainhead .seg div.on { background: #222a35; color: #ffffff; }
+  .mainhead .spacer { flex: 1; }
+  .mainhead .stat { font-family: Consolas, monospace; font-size: 11px; color: #6e7d8c; }
+
+  .row { display: flex; align-items: center; height: 62px; padding: 0 18px; gap: 14px; }
+  .cb { width: 22px; height: 22px; border: 1px solid #46525f; border-radius: 4px; flex: none; }
+  .cb.on { background: #4493f8; border-color: #4493f8; position: relative; }
+  .cb.on::after { content: ""; position: absolute; left: 6px; top: 6px; width: 8px; height: 4px; border-left: 2px solid #0b1016; border-bottom: 2px solid #0b1016; transform: rotate(-45deg); }
+  .row .body { flex: 1; min-width: 0; }
+  .row .t { font-size: 13.5px; font-weight: 500; }
+  .row .m { font-size: 11px; color: #8b98a5; margin-top: 3px; }
+  .row .m em { font-style: normal; color: #6e7d8c; }
+  .fig { font-family: Consolas, monospace; font-size: 14px; width: 132px; text-align: right; flex: none; }
+  .fig.soon { color: #f0883e; }
+  .fig.over { color: #f85149; }
+  .fig.done { color: #6e7d8c; }
+  .row.done .t { color: #8b98a5; text-decoration: line-through; }
+
+  .space { width: 96px; flex: none; }
+  .danger {
+    font: inherit; font-size: 12px; height: 30px; padding: 0 12px; flex: none;
+    background: transparent; color: #f85149; border: 1px solid #503036;
+    border-radius: 4px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <header class="bar panel seam-b">
+    <div class="brand">作业清单<span>6 个平台 · 最后刷新 2 分钟前</span></div>
+    <div class="spacer"></div>
+    <button class="primary">添加任务</button>
+    <button>刷新任务</button>
+    <button>重置浮窗</button>
+    <button>设置</button>
+  </header>
+
+  <div class="wrap">
+    <aside class="rail panel seam-r">
+      <h2>状态</h2>
+      <div class="filters">
+        <div class="item on"><span>未完成</span><span class="n">6</span></div>
+        <div class="item"><span>已完成</span><span class="n">2</span></div>
+      </div>
+      <div class="gap"></div>
+      <h2>站点</h2>
+      <div class="filters">
+        <div class="item"><span>清华 OJ</span><span class="n">1</span></div>
+        <div class="item"><span>网络学堂</span><span class="n">2</span></div>
+        <div class="item"><span>雨课堂</span><span class="n">1</span></div>
+        <div class="item"><span>U 校园</span><span class="n">1</span></div>
+        <div class="item"><span>手动</span><span class="n">1</span></div>
+      </div>
+    </aside>
+
+    <section class="main">
+      <div class="mainhead seam-b">
+        <div class="seg"><div class="on">按到期</div><div>按站点</div></div>
+        <div class="spacer"></div>
+        <div class="stat">今天 4 项 · 已过期 1 项</div>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">第三次上机实验报告</div>
+          <div class="m">数据结构 <em>·</em> 清华 OJ <em>·</em> 截止 今天 18:30</div>
+        </div>
+        <div class="fig soon">还剩 2.5 小时</div>
+        <div class="space"></div>
+        <button class="danger">删除</button>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">第 5 章课后习题</div>
+          <div class="m">编译原理 <em>·</em> 网络学堂 <em>·</em> 截止 今天 23:59</div>
+        </div>
+        <div class="fig soon">还剩 8.4 小时</div>
+        <div class="space"></div>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">期中听力测试</div>
+          <div class="m">大学英语 <em>·</em> U 校园 <em>·</em> 截止 昨天 23:59</div>
+        </div>
+        <div class="fig over">已过期 5.2 小时</div>
+        <div class="space"></div>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">第五次随堂测验</div>
+          <div class="m">概率论 <em>·</em> 雨课堂 <em>·</em> 截止 10-15 12:00</div>
+        </div>
+        <div class="fig">还剩 2 天 3 小时</div>
+        <div class="space"></div>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">读论文并准备组会汇报</div>
+          <div class="m">组会 <em>·</em> 手动任务 <em>·</em> 截止 10-18 09:00</div>
+        </div>
+        <div class="fig">还剩 6 天 4 小时</div>
+        <div class="space"></div>
+        <button class="danger">删除</button>
+      </div>
+
+      <div class="row seam-b">
+        <div class="cb"></div>
+        <div class="body">
+          <div class="t">形式语言与自动机作业三</div>
+          <div class="m">编译原理 <em>·</em> 网络学堂 <em>·</em> 截止 10-21 23:59</div>
+        </div>
+        <div class="fig">还剩 9 天 8 小时</div>
+        <div class="space"></div>
+      </div>
+
+      <div class="row done">
+        <div class="cb on"></div>
+        <div class="body">
+          <div class="t">第二章作业</div>
+          <div class="m">编译原理 <em>·</em> 网络学堂 <em>·</em> 已于 10-09 提交</div>
+        </div>
+        <div class="fig done">已完成</div>
+        <div class="space"></div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

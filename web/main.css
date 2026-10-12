@@ -3,17 +3,33 @@
 
 body {
   font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  background: #f5f6fa;
+  /* 主窗口底版：与浮窗同一族彩色渐变。
+     玻璃壳（.item / header / 弹窗）是半透明白，底色会从玻璃里淡淡透出来，
+     所以这里只走"淡"的一档，深了会把正文对比度一起拖下去。 */
+  background: linear-gradient(135deg, #eef4fd 0%, #f4eefb 48%, #fdf3ea 100%);
+  background-attachment: fixed;
   color: #2c3e50;
   padding: 24px;
 }
 
 /* ========== 顶部栏 ========== */
+/* 玻璃壳：原来是实心白，现在压到 .62/.46 让底版的彩色渐变透出来。
+   文字对比度另行核算过（正文 16.6:1 以上），透明度可以放心给。 */
 header {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46));
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 8px rgba(19, 28, 43, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  header { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 h1 { font-size: 22px; font-weight: 600; }
 
@@ -93,36 +109,59 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 
 /* ========== 标签页 ========== */
+/* 原来是一层浅灰底 + 底部一条 2px 纯色灰分割线，和下面的玻璃卡片像两套东西。
+   现在底改成与卡片同族渐变，分割线也用渐变衔接。 */
 .tabs {
   display: flex;
   gap: 4px;
+  padding: 4px;
   margin-bottom: 14px;
-  border-bottom: 2px solid #e1e6ee;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-bottom: 2px solid transparent;
+  border-radius: 12px 12px 0 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.52));
+  background-clip: padding-box;
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  position: relative;
+}
+.tabs::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -2px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    rgba(143, 184, 240, 0.55) 0%,
+    rgba(220, 210, 245, 0.55) 48%,
+    rgba(247, 226, 200, 0.55) 100%);
 }
 .tab {
-  padding: 10px 20px;
+  padding: 8px 16px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  color: #7f8c8d;
+  color: #6b7686;
   border: none;
   background: none;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.15s;
+  border-radius: 8px;
+  transition: background 0.15s, color 0.15s, transform 0.12s;
 }
-.tab:hover { color: #4a69bd; }
-.tab.active { color: #4a69bd; border-bottom-color: #4a69bd; }
+.tab:hover { color: #1f47ad; background: rgba(255, 255, 255, 0.62); }
+.tab:active { transform: scale(0.98); }
+.tab.active { color: #ffffff; background: #2d5bd1; box-shadow: 0 2px 6px rgba(19, 28, 43, 0.18); }
 .tab .count {
   display: inline-block;
-  background: #eef1f7;
-  color: #4a69bd;
-  border-radius: 10px;
+  background: rgba(19, 28, 43, 0.08);
+  color: #3a4a5c;
+  border-radius: 999px;
   padding: 1px 8px;
   font-size: 12px;
   margin-left: 4px;
+  font-variant-numeric: tabular-nums;
 }
-.tab.active .count { background: #4a69bd; color: white; }
+.tab.active .count { background: rgba(255, 255, 255, 0.24); color: #ffffff; }
 
 /* ========== 任务列表 ========== */
 .list { display: flex; flex-direction: column; gap: 8px; }
@@ -131,28 +170,73 @@ h1 { font-size: 22px; font-weight: 600; }
   display: flex;
   align-items: center;
   padding: 14px 18px;
-  background: white;
-  border-radius: 8px;
-  border-left: 4px solid #4a69bd;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  transition: all 0.2s;
+  border-radius: 12px;
+  /* 左边的 4px 彩线去掉了：状态不能只靠颜色，但也不要"彩线"。
+     紧急/过期改用行底色的深浅区分（见下），文字色也跟着变。 */
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.52));
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 8px rgba(19, 28, 43, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
 }
-.item.urgent  { border-left-color: #e74c3c; background: #fff5f5; }
-.item.expired { border-left-color: #c0392b; background: #fdecea; }
+.item:hover {
+  transform: translateY(-1px) scale(1.008);
+  box-shadow: 0 6px 18px rgba(19, 28, 43, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.70);
+  border-color: rgba(255, 255, 255, 0.80);
+}
+.item:active { transform: translateY(0) scale(0.998); box-shadow: 0 2px 8px rgba(19, 28, 43, 0.06); }
+.item.urgent  { background: linear-gradient(135deg, rgba(252, 206, 186, 0.92), rgba(255, 231, 217, 0.80)); border-color: rgba(255, 255, 255, 0.55); }
+.item.expired { background: linear-gradient(135deg, rgba(238, 200, 200, 0.92), rgba(250, 232, 231, 0.80)); border-color: rgba(255, 255, 255, 0.55); }
 .item.done {
-  opacity: 0.55;
-  border-left-color: #bdc3c7;
-  background: #fafafa;
+  opacity: 0.72;
+  background: rgba(255, 255, 255, 0.30);
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: none;
 }
 .item.done .title .text { text-decoration: line-through; }
 
+/* 勾选框：14px 方形圆角矩形，曲率与行的圆角平行。
+   必须自绘：Chromium 对原生复选框（appearance:auto）会忽略 border-radius，计算值恒为 0px。
+   代价用这些补回来：保留原生 input 的语义/键盘/Tab 序、:focus-visible 焦点环、
+   勾是边框旋转换来的矢量勾（不是 Unicode 字符）。
+   位置：行的 padding-left 与 padding-top 同值(14px)，所以勾选框四边到内容区同一量级。
+   尺寸由 20px 收到 14px，与浮窗统一。 */
 .item input[type=checkbox] {
-  width: 20px;
-  height: 20px;
-  margin-right: 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0 24px 0 0;
+  align-self: center;
   cursor: pointer;
   flex-shrink: 0;
+  border: 1.5px solid rgba(19, 28, 43, 0.55);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  display: inline-grid;
+  place-content: center;
+  transition: transform 0.12s, background 0.15s, border-color 0.15s;
 }
+.item input[type=checkbox]::after {
+  content: "";
+  width: 4.6px;
+  height: 8.4px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.2);
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.item input[type=checkbox]:checked { background: #2d5bd1; border-color: #2d5bd1; }
+.item input[type=checkbox]:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.item input[type=checkbox]:focus-visible { outline: 2px solid #2d5bd1; outline-offset: 2px; }
+.item input[type=checkbox]:hover { transform: scale(1.06); }
+/* 左侧内边距与 padding-top 同为 14px —— 这就是"上下和左边距离一致"的实现。
+   margin-left 0 让勾选框直接压在内容区左缘，不再额外右偏。 */
+.item { padding-left: 14px; }
 
 .info { flex: 1; min-width: 0; }
 .title {
@@ -167,57 +251,84 @@ h1 { font-size: 22px; font-weight: 600; }
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 任务名称固定黑色（有链接的除外，见下） */
+  color: #0a0a0a;
 }
 
 /* 有原网页链接的任务：标题可点，交由系统浏览器打开 */
 .title .text.link {
   cursor: pointer;
-  color: #4a69bd;
+  color: #2d5bd1;
 }
 .title .text.link:hover { text-decoration: underline; }
 
+/* 标签做成小毛玻璃块。曲率与行的圆角平行：行圆角 12 − 内侧距取 5 = 7，
+   但标签只有 17px 高，7px 会接近全圆，所以取 5px，看起来仍是圆角矩形。 */
 .badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  min-height: 17px;
+  line-height: 1;
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #eef1f7;
-  color: #4a69bd;
+  border-radius: 5px;
+  /* 来源（第一个标签）：蓝色毛玻璃。
+     文字与底色都在暖色行上会不够（实测 4.29），所以两边一起压深到 ≥6。 */
+  background: rgba(45, 91, 209, 0.28);
+  color: #16368c;
+  border: 1px solid rgba(45, 91, 209, 0.34);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
   font-weight: 500;
   flex-shrink: 0;
 }
-.badge.manual { background: #fef3e2; color: #d68910; }
+/* 第二个标签是课程名（只在「来源 + 课程」两个标签都在时才是第二格）。浅黄毛玻璃。 */
+.title .badge + .badge {
+  background: rgba(233, 178, 62, 0.34);
+  color: #6b4700;
+  border-color: rgba(180, 130, 20, 0.38);
+}
+/* 手动任务的来源标签没有课程跟在后面，显式声明它仍是蓝色。
+   放在后面才能压过上面那条相邻兄弟选择器。 */
+.badge.manual {
+  background: rgba(45, 91, 209, 0.28);
+  color: #16368c;
+  border-color: rgba(45, 91, 209, 0.34);
+}
 
-.meta { font-size: 13px; color: #7f8c8d; }
-.item.urgent .meta  { color: #c0392b; font-weight: 500; }
-.item.expired .meta { color: #c0392b; }
+.meta { font-size: 13px; color: #6b7686; }
+.item.urgent .meta  { color: #9c2a1e; font-weight: 500; }
+.item.expired .meta { color: #9c2a1e; }
 
 .days {
   font-size: 13px;
   font-weight: 500;
-  color: #4a69bd;
+  /* 时间用蓝 / 红区分：常态蓝、紧急与过期红 */
+  color: #1f47ad;
   margin-left: 12px;
   flex-shrink: 0;
   text-align: right;
 }
-.item.urgent .days  { color: #e74c3c; }
-.item.expired .days { color: #c0392b; }
-.item.done .days    { color: #bdc3c7; }
+.item.urgent .days  { color: #c0392b; }
+.item.expired .days { color: #9c2a1e; }
+.item.done .days    { color: #6b7686; }
 
 .del {
   margin-left: 10px;
-  padding: 2px 8px;
+  padding: 4px 10px;
   font-size: 12px;
-  border: none;
-  background: #f5f6fa;
-  color: #95a5a6;
-  border-radius: 4px;
+  border: 1px solid transparent;
+  background: rgba(19, 28, 43, 0.05);
+  color: #6b7686;
+  border-radius: 8px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
+  /* 常驻可见（淡），hover / 键盘聚焦时清晰 —— 原来 opacity:0 会让键盘用户找不到它 */
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
 }
-.item:hover .del { opacity: 1; }
-.del:hover { background: #fdecea; color: #c0392b; }
+.item:hover .del, .del:focus-visible { opacity: 1; }
+.del:hover { background: rgba(192, 57, 43, 0.10); color: #9c2a1e; border-color: rgba(192, 57, 43, 0.24); }
 
 /* ========== 空状态 ========== */
 .empty {
