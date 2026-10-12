@@ -1,4 +1,4 @@
-﻿"""静默登录公共设施。
+"""静默登录公共设施。
 
 设计目标：有账号密码时，会话过期后程序在后台静默重登，用户无感知。
 
@@ -573,8 +573,10 @@ def _wait_for_login(page, validate, site, deadline, cfg):
     必须用「可见的二次验证元素 / 明确的二次验证句子」来判断。
     """
     error_markers = cfg.get("error_markers") or [
-        "无法登录", "密码错误", "账号或密码", "账户密码", "用户名或密码错误",
-        "密码不正确", "账号不存在", "请确认提供的账户", "登录失败",
+        # 用足够长的整句，避免把正常登录页上的「忘记密码」之类误判成失败
+        "您的用户名或密码不正确", "用户名或密码不正确", "用户名或密码错误",
+        "账号或密码不正确", "账号或密码错误", "密码不正确", "密码错误",
+        "账号不存在", "账户不存在", "请确认提供的账户", "无法登录", "登录失败",
     ]
 
     nav_checked = set()   # 已经为哪些 URL 做过「导航到目标页复核」
@@ -594,6 +596,10 @@ def _wait_for_login(page, validate, site, deadline, cfg):
                 return True, "ok"
 
         # 1) 明确的登录失败提示 → 立刻返回，不要干等
+        #    分两步：先看错误类元素，再看**正文**里的明确句子。
+        #    只扫元素是不够的：清华 SSO 报「您的用户名或密码不正确，请重试！」
+        #    时，那句话不在任何 error 类元素里（错误类元素只匹配到「忘记密码」
+        #    这个链接），结果会一路轮询到超时——实测白等 60 秒。
         try:
             err = page.evaluate(
                 r"""() => {
@@ -608,6 +614,15 @@ def _wait_for_login(page, validate, site, deadline, cfg):
         except Exception:
             err = ""
         if err and any(m in err for m in error_markers):
+            return False, "bad_credentials"
+
+        # 1b) 正文里的明确失败句子（用足够长的固定句，避免误判）
+        try:
+            body = page.evaluate(
+                "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
+        except Exception:
+            body = ""
+        if body and any(m in body for m in error_markers):
             return False, "bad_credentials"
 
         # 2) 真正的二次验证界面

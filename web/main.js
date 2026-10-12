@@ -56,6 +56,14 @@ const LOGIN_HINTS = {
     text: '自动登录已尝试，需要你确认一次验证码',
     btn: '去验证',
   },
+  bad_credentials: {
+    text: '自动登录失败，账号或密码可能不对，请在「设置 → 填账号密码」核对',
+    btn: '重新填账号密码',
+  },
+  session_unstable: {
+    text: '登录成功了但会话没能保存下来，请再点一次登录',
+    btn: '重试登录',
+  },
   default: {
     text: '登录状态已失效',
     btn: '登录',

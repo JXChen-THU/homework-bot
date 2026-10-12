@@ -368,8 +368,25 @@ def auto_relogin_site(site):
     reason = reason2
 
     _relogin_mark_failed(sid, reason)
+    _remember_failure(sid, reason)
     print(f"[relogin] {name}: 失败({reason})，需要人工处理")
     return False
+
+
+# 记录每个站点最近一次后台重登失败的原因，供 _need_login_entry 给出准确话术。
+# 例如密码错了要提示「账号密码可能不对」，而不是让用户去点验证码。
+_last_failure = {}
+_last_failure_lock = threading.Lock()
+
+
+def _remember_failure(site_id, reason):
+    with _last_failure_lock:
+        _last_failure[site_id] = reason
+
+
+def _last_failure_reason(site_id):
+    with _last_failure_lock:
+        return _last_failure.get(site_id)
 
 
 def _need_login_entry(site):
@@ -387,7 +404,15 @@ def _need_login_entry(site):
     elif not has_cred:
         reason = "no_credentials"
     else:
-        reason = "manual_required"
+        # 有账密但自动登录失败：用真实失败原因，给前端更准确的话术。
+        # 例如密码错了要说「账号密码可能不对」，而不是让用户去点验证码。
+        last = _last_failure_reason(site.get("id"))
+        if last == "bad_credentials":
+            reason = "bad_credentials"
+        elif last == "session_save_unusable":
+            reason = "session_unstable"
+        else:
+            reason = "manual_required"
 
     return {
         "site_id": site["id"],
