@@ -164,48 +164,66 @@ def ensure_dirs():
 # ============================================================
 # 日志
 # ============================================================
-def _wrap_stream(fh, original=None):
-    """把文件句柄包成可 write 的对象。
+def _redirect_print_to_logging(level=logging.INFO):
+    """把 print/stdout 的输出交给 logging，而不是自己另开一个文件句柄。
 
-    刻意不用 io.TextIOWrapper：它没有稳定的 fileno()，
-    子进程（Playwright 启动的浏览器）继承 fd 时会踩坑。
+    为什么改成这样（踩过坑才改）：
 
-    original 非空时**同时**写回原流：这样从控制台运行（源码模式、
-    调试脚本）时仍能看到输出，而不是全部只进日志文件。
+    最初是「直接把 sys.stdout 包成一个写 app.log 的对象」，于是同一份
+    日志文件被**两个彼此不知情的句柄**打开——RotatingFileHandler 一个、
+    直写一个。由此带来两个问题：
+
+      1. 轮转之后直写句柄仍指向被改名/删除的旧文件，日志会分裂；
+      2. 一旦有人「读日志文件并打印」（排障脚本里很自然的写法），
+         读与写落在同一个文件上会形成自我反馈，文件呈指数级膨胀。
+         实际发生过：几分钟内涨到 194 GB，把 D 盘占满。
+
+    改为经 logging 转发后只剩一个句柄，轮转正常，也不存在这条自反馈路径。
     """
-    class _Tee:
+    logger = logging.getLogger("console")
+
+    class _LogStream:
+        """只实现 logging 需要的接口；写入统一走 logger（同一把锁、同一个句柄）。"""
+
+        def __init__(self, lvl):
+            self._lvl = lvl
+            self._lock = threading.Lock()
+            self._busy = False
+
         def write(self, s):
-            try:
-                if not s:
-                    return 0
-                fh.write(s)
-                fh.flush()
-                if original is not None:
-                    try:
-                        original.write(s)
-                        original.flush()
-                    except Exception:
-                        pass
-                return len(s)
-            except Exception:
+            if not s:
                 return 0
+            if not s.strip():          # 纯空白不值得占一行日志
+                return len(s)
+            # 防递归：万一 logging 内部又往这里写，直接丢弃而不是无限套娃
+            with self._lock:
+                if self._busy:
+                    return len(s)
+                self._busy = True
+            try:
+                logger.log(self._lvl, s.rstrip())
+            except Exception:
+                pass
+            finally:
+                with self._lock:
+                    self._busy = False
+            return len(s)
 
         def flush(self):
-            for f in (fh, original):
-                if f is None:
-                    continue
-                try:
-                    f.flush()
-                except Exception:
-                    pass
+            try:
+                for h in logging.getLogger().handlers:
+                    h.flush()
+            except Exception:
+                pass
 
         def isatty(self):
             return False
 
-        def fileno(self):
-            return fh.fileno()
+        def writable(self):
+            return True
 
-    return _Tee()
+    sys.stdout = _LogStream(level)
+    sys.stderr = _LogStream(logging.ERROR)
 
 
 def setup_logging(level=logging.INFO):
@@ -227,9 +245,11 @@ def setup_logging(level=logging.INFO):
             try:
                 os.makedirs(candidate, exist_ok=True)
                 path = os.path.join(candidate, "app.log")
-                fh = open(path, "a", encoding="utf-8", buffering=1)
+                # 只探测能否写，随即关闭：真正的写入统一交给 RotatingFileHandler，
+                # 绝不让第二个句柄长期持有同一个文件（见 _redirect_print_to_logging）。
+                with open(path, "a", encoding="utf-8"):
+                    pass
                 LOG_PATH = path
-                _log_stream = fh
                 break
             except Exception:
                 continue
@@ -237,7 +257,7 @@ def setup_logging(level=logging.INFO):
         if LOG_PATH is None:
             return None
 
-        # 文件日志（带轮转）
+        # 文件日志（带轮转）—— 全项目唯一的日志句柄
         try:
             handler = logging.handlers.RotatingFileHandler(
                 LOG_PATH, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8")
@@ -247,16 +267,13 @@ def setup_logging(level=logging.INFO):
             root_logger.setLevel(level)
             root_logger.addHandler(handler)
             _log_handler = handler
+            _log_stream = handler.stream
         except Exception:
             pass
 
-        # 把 print 也收进日志文件：窗口化 exe 下 stdout 是 None，print 会全部丢失。
-        # 从控制台运行时同时保留控制台输出，方便源码模式调试。
+        # 把 print 收进日志：窗口化 exe 下 stdout 是 None，print 否则全部丢失。
         try:
-            orig_out = sys.stdout if sys.stdout is not None else None
-            orig_err = sys.stderr if sys.stderr is not None else None
-            sys.stdout = _wrap_stream(_log_stream, orig_out)
-            sys.stderr = _wrap_stream(_log_stream, orig_err)
+            _redirect_print_to_logging(level)
         except Exception:
             pass
 
