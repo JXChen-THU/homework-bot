@@ -3,27 +3,51 @@
 # 职责：读 sites.yaml，遍历每个站点，调用对应的抓取器
 # ============================================================
 
+import json
 import os
-import sys
 import socket
+import sys
 import threading
 import time
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from adapters import REGISTRY
 from adapters.base import LoginRequiredError
+from core import paths as _paths
 
 
-# 打包后 __file__ 指向 _internal 里面，
-# 用户数据（sites.yaml、data/）要放在 exe 旁边，和 app.py 保持一致
-if getattr(sys, 'frozen', False):
-    BASE = os.path.dirname(sys.executable)
-else:
-    BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# ============================================================
+# 数据根解析
+# 导入期**只解析路径、不建目录**：frozen 时 BASE 是 exe 所在目录，
+# 若用户把程序放在 Program Files 等受保护位置，原先在这里
+# os.makedirs() 会直接抛 PermissionError，程序连界面都起不来。
+# 现在真正的目录创建与「不可写则回退 %LOCALAPPDATA%」由 core.paths 负责，
+# 在 main() 里调用 apply_paths() 同步过来。
+# ============================================================
+def _preferred_root():
+    """首选数据根：exe（或项目）所在目录 —— 老用户的配置就在这里。"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+BASE = _preferred_root()
 DATA_DIR = os.path.join(BASE, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
 SITES_FILE = os.path.join(BASE, "sites.yaml")
+
+
+def apply_paths():
+    """把 core.paths 解析出的最终路径同步到本模块。
+
+    保留模块级常量是为了兼容既有调用方与测试的 monkeypatch 习惯；
+    解析一旦完成就以这里为准。
+    """
+    global BASE, DATA_DIR, SITES_FILE
+    BASE = _paths.ROOT or BASE
+    DATA_DIR = _paths.DATA_DIR or DATA_DIR
+    SITES_FILE = _paths.SITES_FILE or SITES_FILE
+    return BASE
+
 
 
 # ============================================================
@@ -58,14 +82,69 @@ def wait_for_network(timeout=120, interval=2):
         time.sleep(interval)
 
 
+# ============================================================
+# 原子写 + 读写互斥
+# sites.yaml 原先用 open(...,"w") 直写，CPython 会先 truncate，
+# 而 fetch_all 已经并行、controller 又可能随时重写配置，
+# 读方会读到半截 YAML。会话文件同理。
+# ============================================================
+_sites_lock = threading.RLock()
+
+
+def atomic_write_text(path, text, backup=False):
+    """写临时文件后 os.replace 原子替换。返回 (ok, 错误信息)。
+
+    backup=True 时会把现有文件先备份成 <path>.bak。
+    """
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
+        if backup and os.path.exists(path):
+            try:
+                import shutil
+                shutil.copy2(path, path + ".bak")
+            except Exception:
+                pass
+        os.replace(tmp, path)
+        return True, None
+    except Exception as e:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
+        return False, f"{type(e).__name__}: {e}"
+
+
 def load_sites(include_disabled=False):
     """读取 sites.yaml，返回站点列表。
     include_disabled=False 时过滤掉 enabled=False 的站点。
     文件不存在返回空列表。"""
-    if not os.path.exists(SITES_FILE):
-        return []
-    with open(SITES_FILE, encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+    with _sites_lock:
+        if not os.path.exists(SITES_FILE):
+            return []
+        try:
+            with open(SITES_FILE, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            # 文件损坏时退回备份，尽量不让用户「站点全没了」
+            bak = SITES_FILE + ".bak"
+            if os.path.exists(bak):
+                try:
+                    with open(bak, encoding="utf-8") as f:
+                        data = yaml.safe_load(f) or {}
+                    print(f"[config] sites.yaml 损坏，已回退到备份 {bak}")
+                except Exception:
+                    return []
+            else:
+                return []
     sites = data.get("sites", [])
     if include_disabled:
         return sites
@@ -74,14 +153,19 @@ def load_sites(include_disabled=False):
 
 
 def save_sites(sites):
-    """把站点列表写回 sites.yaml"""
-    with open(SITES_FILE, "w", encoding="utf-8") as f:
-        yaml.safe_dump(
-            {"sites": sites}, f,
-            allow_unicode=True,
-            sort_keys=False,
-            default_flow_style=False,
-        )
+    """把站点列表写回 sites.yaml（原子替换 + 备份）。返回 (ok, 错误信息)。"""
+    text = yaml.safe_dump(
+        {"sites": sites},
+        allow_unicode=True,
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    with _sites_lock:
+        ok, err = atomic_write_text(SITES_FILE, text, backup=True)
+    if not ok:
+        print(f"[config] 写入 sites.yaml 失败：{err}")
+    return ok, err
+
 
 
 # 需要加密存储的字段（账号和密码都加密）
@@ -223,11 +307,76 @@ def fetch_all():
     return homeworks, errors, need_login
 
 
+# ============================================================
+# 每站点互斥锁
+# 同一站点可能被两条路径同时操作：刷新（线程池）与手动点「登录」（js_api 线程）。
+# 两者都会跑完整的登录流程（≥10 秒），若并发就会：同一站点拉起两个浏览器、
+# 会话文件互相覆盖。
+#
+# 必须用 RLock：login_site() 会调用 auto_relogin_site()，
+# 而 auto_relogin_site() 自身也要取同一把锁；普通 Lock 会自死锁。
+# ============================================================
+_site_locks = {}
+_site_locks_guard = threading.Lock()
+
+
+def _site_lock(site_id):
+    with _site_locks_guard:
+        lock = _site_locks.get(site_id)
+        if lock is None:
+            lock = threading.RLock()
+            _site_locks[site_id] = lock
+        return lock
+
+
+def _session_file(site, base_dir=None):
+    """该站点会话文件的完整路径；配置里没写 session 时按 id 推断。"""
+    name = site.get("session") or f"{site.get('id')}_session.json"
+    return os.path.join(base_dir or DATA_DIR, name)
+
+
+def _session_is_broken(site, base_dir=None):
+    """会话文件是否存在但已损坏（读不出合法 JSON）。
+
+    这是「会话文件被写坏」的判据。之所以重要：损坏的会话会让
+    Playwright 的 new_context(storage_state=...) 抛通用异常，
+    而通用异常会被归入 errors 并**跳过重登分支**，
+    于是站点永远无法自愈——用户只能手动删文件。
+    """
+    path = _session_file(site, base_dir)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, encoding="utf-8") as f:
+            json.load(f)
+        return False
+    except Exception:
+        return True
+
+
+def _discard_session(site, base_dir=None):
+    """删除损坏的会话文件，让它回到「未登录」状态从而触发重登。"""
+    path = _session_file(site, base_dir)
+    try:
+        os.remove(path)
+        print(f"[fetch] {site.get('name', site.get('id'))}: 会话文件损坏，已删除以便重新登录")
+        return True
+    except Exception as e:
+        print(f"[fetch] {site.get('name')}: 删除损坏会话失败 {type(e).__name__}: {e}")
+        return False
+
+
 def _fetch_one_site(site):
     """抓取单个站点（含会话失效后的后台重登），返回 (homeworks, errors, need_login)。
 
     这个函数会被并行调用，所以内部不能依赖任何跨站点的可变全局状态。
+    整段（抓取 + 重登）在同一站点的锁内执行，避免刷新与手动登录同时操作一个站点。
     """
+    with _site_lock(site.get("id")):
+        return _fetch_one_site_locked(site)
+
+
+def _fetch_one_site_locked(site):
     homeworks, errors, need_login = [], [], []
     adapter = REGISTRY.get(site.get("type"))
     if not adapter:
@@ -244,11 +393,15 @@ def _fetch_one_site(site):
     except LoginRequiredError:
         pass
     except Exception as e:
-        errors.append({
-            "site_name": site.get("name", site.get("id")),
-            "message": f"{type(e).__name__}: {e}",
-        })
-        return homeworks, errors, need_login
+        # 会话文件损坏时不要把错误当终局：删掉坏文件，走重登分支自愈
+        if _session_is_broken(site):
+            _discard_session(site)
+        else:
+            errors.append({
+                "site_name": site.get("name", site.get("id")),
+                "message": f"{type(e).__name__}: {e}",
+            })
+            return homeworks, errors, need_login
 
     # ---------- 会话失效：尝试后台静默重登 ----------
     if auto_relogin_site(site):
@@ -284,6 +437,21 @@ _RELOGIN_COOLDOWN_S = {
 }
 _RELOGIN_COOLDOWN_DEFAULT = 300
 
+# 记录每个站点最近一次后台重登失败的原因，供 _need_login_entry 给出准确话术。
+# 例如密码错了要提示「账号密码可能不对」，而不是让用户去点验证码。
+_last_failure = {}
+_last_failure_lock = threading.Lock()
+
+
+def _remember_failure(site_id, reason):
+    with _last_failure_lock:
+        _last_failure[site_id] = reason
+
+
+def _last_failure_reason(site_id):
+    with _last_failure_lock:
+        return _last_failure.get(site_id)
+
 
 def _relogin_blocked(site_id):
     with _relogin_cooldown_lock:
@@ -298,8 +466,15 @@ def _relogin_mark_failed(site_id, reason):
 
 
 def _relogin_clear(site_id):
+    """成功重登后清掉冷却，同时清掉上次失败原因。
+
+    失败原因也必须清：否则一次历史上的 bad_credentials 会一直留在表里，
+    把后续的提示话术带偏（例如明明是无头被要求验证码，却提示用户去改密码）。
+    """
     with _relogin_cooldown_lock:
         _relogin_cooldown.pop(site_id, None)
+    with _last_failure_lock:
+        _last_failure.pop(site_id, None)
 
 
 def auto_relogin_site(site):
@@ -310,7 +485,13 @@ def auto_relogin_site(site):
       3. 都失败 → 返回 False，由上层提示用户（例如需要输入验证码）
 
     返回 True 表示会话已重新保存好，可以马上重试抓取。
+    全程持有该站点的可重入锁，避免与手动登录并发。
     """
+    with _site_lock(site.get("id")):
+        return _auto_relogin_locked(site)
+
+
+def _auto_relogin_locked(site):
     try:
         from adapters.auth import has_credentials, silent_login
     except Exception:
@@ -322,6 +503,8 @@ def auto_relogin_site(site):
     sid = site.get("id")
     name = site.get("name", sid)
     if _relogin_blocked(sid):
+        # 此处故意保留 _last_failure 里的上次失败原因：
+        # 冷却期内上层仍要靠它给出准确话术（例如提示「账号密码可能不对」）。
         print(f"[relogin] {name}: 刚失败过，冷却中，跳过自动重登")
         return False
 
@@ -373,22 +556,6 @@ def auto_relogin_site(site):
     return False
 
 
-# 记录每个站点最近一次后台重登失败的原因，供 _need_login_entry 给出准确话术。
-# 例如密码错了要提示「账号密码可能不对」，而不是让用户去点验证码。
-_last_failure = {}
-_last_failure_lock = threading.Lock()
-
-
-def _remember_failure(site_id, reason):
-    with _last_failure_lock:
-        _last_failure[site_id] = reason
-
-
-def _last_failure_reason(site_id):
-    with _last_failure_lock:
-        return _last_failure.get(site_id)
-
-
 def _need_login_entry(site):
     """构造给前端的「需要登录」条目，带上是哪种原因。"""
     try:
@@ -427,6 +594,7 @@ def login_site(site_id):
 
     先试一次无头静默登录；不行再弹可见窗口让用户完成
     （验证码、二次认证、扫码等都需要人工）。
+    全程持有该站点的锁，避免与后台刷新同时操作同一站点。
     """
     site = get_site(site_id)
     if not site:
@@ -435,9 +603,12 @@ def login_site(site_id):
     if not adapter:
         return False
 
-    # 1) 先试静默
-    if auto_relogin_site(site):
-        return True
+    with _site_lock(site_id):
+        # 1) 先试静默
+        if auto_relogin_site(site):
+            return True
 
-    # 2) 退回可见窗口，人工完成（会尽量先把账号密码填好，用户只需过验证码）
-    return adapter.login(site, DATA_DIR)
+        # 2) 退回可见窗口，人工完成（会尽量先把账号密码填好，用户只需过验证码）
+        #    注意：这里故意绕过冷却——冷却只针对**自动**重登，
+        #    用户手动点「登录」本来就应该立刻执行。
+        return adapter.login(site, DATA_DIR)

@@ -5,6 +5,7 @@
 import os
 import sys
 import json
+import logging
 import threading
 import time
 import uuid
@@ -14,12 +15,17 @@ import webview
 
 from core.database import get_conn
 from core.task_logic import compute_urgent, compute_normal
+from core import paths
 
 from core.site_runner import fetch_all, login_site
 
 
 # ============================================================
 # 路径处理
+# 导入期只解析静态资源路径，**不建任何目录**（见 core/paths.py 的说明）。
+# 数据目录在 main() 里经 core.paths.resolve() 决定，不可写时回退到
+# %LOCALAPPDATA%\HomeworkTasks，避免用户把程序放在 Program Files 时
+# 在导入期就抛 PermissionError 导致连界面都出不来。
 # ============================================================
 if getattr(sys, 'frozen', False):
     BASE = os.path.dirname(sys.executable)
@@ -29,7 +35,6 @@ else:
     RES = BASE
 
 DATA_DIR = os.path.join(BASE, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
 DB = os.path.join(DATA_DIR, "homework.db")
 
 # ============================================================
@@ -75,13 +80,21 @@ _panel_dismissed = False
 # 配置初始化
 # ============================================================
 def ensure_sites_yaml():
-    target = os.path.join(BASE, "sites.yaml")
+    """首次启动时从模板生成 sites.yaml。返回 True 表示新生成。"""
+    from core import paths as _paths
+    target = _paths.SITES_FILE or os.path.join(BASE, "sites.yaml")
     if os.path.exists(target):
-        return
+        return False
     template = os.path.join(RES, "sites.yaml.template")
     if os.path.exists(template):
-        shutil.copyfile(template, target)
-        print(f"[init] 已生成 {target}")
+        try:
+            os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+            shutil.copyfile(template, target)
+            print(f"[init] 已生成 {target}")
+            return True
+        except Exception as e:
+            print(f"[init] 生成 sites.yaml 失败：{type(e).__name__}: {e}")
+    return False
 
 
 def upgrade_credentials():
@@ -94,7 +107,48 @@ def upgrade_credentials():
         from core.site_runner import upgrade_plaintext_credentials
         upgrade_plaintext_credentials()
     except Exception as e:
-        print(f"[secrets] 加密升级跳过：{type(e).__name__}: {e}")
+        logging.getLogger("app").warning(
+            "加密升级跳过：%s: %s", type(e).__name__, e)
+
+
+def _setup_runtime_paths():
+    """解析数据目录、建目录、开日志。返回 (ok, 错误信息)。
+
+    必须在任何读写 data/ 或 sites.yaml 的动作之前调用。
+    """
+    from core import paths as _paths
+
+    global DATA_DIR, DB
+    _paths.resolve()
+    if not _paths.ensure_dirs():
+        return False, f"无法创建数据目录：{_paths.DATA_DIR}"
+
+    _paths.setup_logging()
+
+    # 同步到本模块与 site_runner（后者有自己的模块级常量）
+    DATA_DIR = _paths.DATA_DIR
+    DB = os.path.join(DATA_DIR, "homework.db")
+    try:
+        from core import site_runner
+        site_runner.apply_paths()
+    except Exception as e:
+        logging.getLogger("app").warning("同步站点调度器路径失败：%s", e)
+
+    logging.getLogger("app").info("数据目录：%s", DATA_DIR)
+    return True, None
+
+
+def _fatal_dialog(title, message):
+    """用系统消息框告知用户（窗口化 exe 下没有控制台可看）。"""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)  # MB_ICONERROR
+    except Exception:
+        pass
+    try:
+        logging.getLogger("app").error("%s: %s", title, message)
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -426,7 +480,8 @@ class Api:
             _first_load_done = True
             show_main_window()
 
-        return {"items": items, "errors": errors, "need_login": need_login}
+        return {"items": items, "errors": errors, "need_login": need_login,
+                "startup": paths.startup_messages()}
 
     def toggle_done(self, uid, done):
         conn = get_conn(DB)
@@ -595,7 +650,11 @@ class Api:
                     s["basic_user"] = encrypt((basic_user or "").strip())
                 if basic_pass is not None:
                     s["basic_pass"] = encrypt((basic_pass or "").strip())
-                save_sites(sites)
+                ok, err = save_sites(sites)
+                if not ok:
+                    # 不能只 print：窗口化 exe 下 print 会被丢弃，
+                    # 用户会看到"保存成功"而文件其实没变。
+                    return {"error": f"写入 sites.yaml 失败：{err}"}
                 # 账号密码变了，清掉旧会话，下次刷新会用新账号重新登录
                 self._wipe_session_files(s["id"], s.get("session"))
                 return {"ok": True}
@@ -647,7 +706,9 @@ class Api:
             by_id[sid]["enabled"] = bool(ch.get("enabled", True))
 
         new_sites = [s for s in sites if s["id"] not in to_delete]
-        save_sites(new_sites)
+        ok, err = save_sites(new_sites)
+        if not ok:
+            return {"error": f"写入 sites.yaml 失败：{err}"}
         return {"ok": True}
 
     # ---------- 开机自启动 ----------
@@ -710,9 +771,21 @@ def _startup_show_fallback():
 def main():
     global _main_window, _alert_window, _panel_window, _screen_w
 
-    ensure_sites_yaml()
-    # 把残留的明文账号密码加密（老的 sites.yaml 会自动升级，用户无感）
-    upgrade_credentials()
+    # 1) 先解析数据目录 + 开日志。必须在任何 data/ 读写之前。
+    ok, err = _setup_runtime_paths()
+    if not ok:
+        _fatal_dialog("任务清单 - 无法启动", err)
+        sys.exit(1)
+
+    log = logging.getLogger("app")
+    log.info("程序启动")
+
+    # 2) 首次启动生成配置；把残留明文账密加密
+    try:
+        ensure_sites_yaml()
+        upgrade_credentials()
+    except Exception as e:
+        log.exception("启动初始化失败：%s", e)
 
     api = Api()
 
@@ -720,42 +793,56 @@ def main():
     alert_path = os.path.join(RES, "web", "alert.html")
     panel_path = os.path.join(RES, "web", "panel.html")
 
-    _main_window = webview.create_window(
-        "任务清单", index_path, js_api=api,
-        width=1000, height=720,
-        minimized=True,
-    )
-    _main_window.events.closing += _on_main_closing
-    _main_window.events.minimized += _on_main_minimized
-    _main_window.events.restored += _on_main_restored
+    # 3) 建窗口与启动 GUI。目标机缺少 WebView2 Runtime 等情况下，
+    #    异常会在 webview.start() 抛出——必须给出中文、可操作的提示，
+    #    否则用户只看到"程序没反应"。
+    try:
+        _main_window = webview.create_window(
+            "任务清单", index_path, js_api=api,
+            width=1000, height=720,
+            minimized=True,
+        )
+        _main_window.events.closing += _on_main_closing
+        _main_window.events.minimized += _on_main_minimized
+        _main_window.events.restored += _on_main_restored
 
-    _alert_window = webview.create_window(
-        "警告", alert_path, js_api=api,
-        frameless=True, on_top=True, hidden=True,
-        width=ALERT_W, height=140,
-        transparent=True,
-    )
-    _panel_window = webview.create_window(
-        "提醒", panel_path, js_api=api,
-        frameless=True, on_top=True, hidden=True,
-        width=ALERT_W, height=200,
-        transparent=True,
-    )
+        _alert_window = webview.create_window(
+            "警告", alert_path, js_api=api,
+            frameless=True, on_top=True, hidden=True,
+            width=ALERT_W, height=140,
+            transparent=True,
+        )
+        _panel_window = webview.create_window(
+            "提醒", panel_path, js_api=api,
+            frameless=True, on_top=True, hidden=True,
+            width=ALERT_W, height=200,
+            transparent=True,
+        )
 
-    threading.Thread(target=_startup_show_fallback, daemon=True).start()
+        threading.Thread(target=_startup_show_fallback, daemon=True).start()
 
-    def _after_start():
-        global _screen_w
-        try:
-            s = webview.screens[0]
-            W, H = s.width, s.height
-        except Exception:
-            W, H = 1920, 1080
-        _screen_w = W
-        time.sleep(0.3)
-        layout_all()
+        def _after_start():
+            global _screen_w
+            try:
+                s = webview.screens[0]
+                W, H = s.width, s.height
+            except Exception:
+                W, H = 1920, 1080
+            _screen_w = W
+            time.sleep(0.3)
+            layout_all()
 
-    webview.start(_after_start)
+        webview.start(_after_start)
+    except Exception as e:
+        log.exception("界面启动失败：%s", e)
+        _fatal_dialog(
+            "任务清单 - 界面无法启动",
+            "程序界面启动失败，最常见的原因是缺少 Microsoft Edge WebView2 运行时。\n\n"
+            "请到微软官网搜索并安装“WebView2 Runtime”（常青版即可），然后重新打开本程序。\n\n"
+            f"技术信息：{type(e).__name__}: {e}\n\n"
+            f"详细日志：{paths.LOG_PATH or '(未生成)'}"
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -68,7 +68,10 @@ def _plain(value):
     try:
         from core.secrets import decrypt
     except Exception:
-        return value or ""
+        # 拿不到解密模块时**不能**把原值当明文返回：
+        # 那会把 "enc:v1:..." 当成账号密码填进登录表单。
+        # 按「解不开」处理，让上层提示用户重新填写。
+        return ""
     plain, _ok = decrypt(value)
     return plain
 

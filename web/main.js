@@ -57,7 +57,7 @@ const LOGIN_HINTS = {
     btn: '去验证',
   },
   bad_credentials: {
-    text: '自动登录失败，账号或密码可能不对，请在「设置 → 填账号密码」核对',
+    text: '自动登录失败，账号或密码可能不对，请点按钮重新填写',
     btn: '重新填账号密码',
   },
   session_unstable: {
@@ -77,8 +77,10 @@ function renderBanners(errors, needLogin) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
     needLogin.forEach(s => {
       const hint = LOGIN_HINTS[s.reason] || LOGIN_HINTS.default;
+      // data-reason 决定按钮点下去该做什么：只有 bad_credentials 是「填凭据」，
+      // 其余原因才需要弹出登录窗口
       html += '<div class="login-row">'
-        + `<button data-login-site="${escapeHtml(s.site_id)}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
+        + `<button data-login-site="${escapeHtml(s.site_id)}" data-reason="${escapeHtml(s.reason || '')}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
         + `<span class="login-hint">${hint.text}</span>`
         + '</div>';
     });
@@ -98,21 +100,34 @@ function renderBanners(errors, needLogin) {
   banners.querySelectorAll('[data-login-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const siteId = btn.dataset.loginSite;
+      const reason = btn.dataset.reason;
+
+      // 「重新填账号密码」承诺的是填凭据，不是弹浏览器窗口：
+      // 直接打开凭据弹窗。openCredDialog 内部对查不到的站点有 `|| {}` 兜底，
+      // 没打开过设置面板（sitesFullInfo 为空）也能正常使用。
+      if (reason === 'bad_credentials') {
+        openCredDialog(siteId);
+        return;
+      }
+
       btn.disabled = true;
-      const originalText = btn.textContent;
       btn.textContent = '正在打开登录窗口...';
 
-      const r = await window.pywebview.api.login(siteId);
-
-      if (r.ok) {
-        await load();
-      } else if (r.error === 'need_credentials') {
+      try {
+        const r = await window.pywebview.api.login(siteId);
+        if (r && r.ok) {
+          // load() 会重新渲染提示条，按钮随 innerHTML 一起被替换，不必手动恢复
+          await load();
+          return;
+        }
+        // 后端只返回 {ok: ok}，没成功就是「未完成」，让用户能再点
         btn.disabled = false;
-        btn.textContent = originalText;
-        alert('这个网站需要先填写账号密码。\n\n请点击右上角「设置」，在网站列表中找到它，点「填账号密码」填好后再回来登录。');
-      } else {
+        btn.textContent = '登录未完成，点击重试';
+      } catch (e) {
+        // pywebview 会把 Python 异常变成 rejected promise；
+        // 不在这里恢复，按钮会永久停在 disabled 的「正在打开登录窗口...」
         btn.disabled = false;
-        btn.textContent = '登录未完成，重试';
+        btn.textContent = '登录出错，点击重试';
       }
     });
   });
@@ -190,7 +205,14 @@ function render() {
     cb.addEventListener('change', async (e) => {
       const uid = e.target.dataset.uid;
       const done = e.target.checked;
-      await window.pywebview.api.toggle_done(uid, done);
+      try {
+        await window.pywebview.api.toggle_done(uid, done);
+      } catch (err) {
+        // 后端没保存成功，勾选状态要退回，否则界面和真实数据不一致
+        e.target.checked = !done;
+        alert('保存勾选状态失败：' + err);
+        return;
+      }
 
       const it = items.find(x => x.uid === uid);
       if (it) it.done = done;
@@ -202,11 +224,20 @@ function render() {
     btn.addEventListener('click', async () => {
       const uid = btn.dataset.del;
       if (!confirm('确定要删除这条手动任务吗？')) return;
-      const r = await window.pywebview.api.delete_task(uid);
-      if (!r.error) {
-        items = items.filter(x => x.uid !== uid);
-        render();
+      let r;
+      try {
+        r = await window.pywebview.api.delete_task(uid);
+      } catch (err) {
+        alert('删除失败：' + err);
+        return;
       }
+      if (r && r.error) {
+        // delete_task 确实会返回 {"error": ...}
+        alert('删除失败：' + r.error);
+        return;
+      }
+      items = items.filter(x => x.uid !== uid);
+      render();
     });
   });
 }
@@ -219,14 +250,13 @@ async function load() {
   loadingHint.textContent = '任务刷新中，请等待…';
 
   try {
+    // get_homeworks 只返回 {items, errors, need_login}，没有 error 字段；
+    // 抓取失败会走 catch（pywebview 把后端异常变成 rejected promise），
+    // 单个站点的问题则在 res.errors 里
     const res = await window.pywebview.api.get_homeworks();
-    if (res.error) {
-      banners.innerHTML = `<div class="banner err">抓取失败：${escapeHtml(res.error)}</div>`;
-    } else {
-      items = res.items || [];
-      renderBanners(res.errors || [], res.need_login || []);
-      render();
-    }
+    items = res.items || [];
+    renderBanners(res.errors || [], res.need_login || []);
+    render();
   } catch (e) {
     banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
   } finally {
@@ -253,7 +283,11 @@ refreshBtn.addEventListener('click', load);
 // 「重置浮窗」按钮
 // ============================================================
 document.getElementById('reset-floating-btn').addEventListener('click', async () => {
-  await window.pywebview.api.reset_floating();
+  try {
+    await window.pywebview.api.reset_floating();
+  } catch (e) {
+    alert('重置浮窗失败：' + e);
+  }
 });
 
 // ============================================================
@@ -288,8 +322,15 @@ document.getElementById('m-ok').addEventListener('click', async () => {
 
   const due = dueRaw.replace('T', ' ') + (dueRaw.length === 16 ? ':00' : '');
 
-  const r = await window.pywebview.api.add_task(title, course, due, url);
-  if (r.error) {
+  let r;
+  try {
+    r = await window.pywebview.api.add_task(title, course, due, url);
+  } catch (err) {
+    modalError.textContent = '添加失败：' + err;
+    return;
+  }
+  if (r && r.error) {
+    // add_task 确实会返回 {"error": ...}
     modalError.textContent = r.error;
     return;
   }
@@ -317,7 +358,14 @@ async function openSettings() {
 async function refreshSitesPanel() {
   const list = document.getElementById('site-list');
   list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">加载中...</div>';
-  const res = await window.pywebview.api.list_sites();
+  let res;
+  try {
+    res = await window.pywebview.api.list_sites();
+  } catch (err) {
+    // 不处理会一直停在「加载中...」
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:#e74c3c;">读取网站列表失败：${escapeHtml(err)}</div>`;
+    return;
+  }
   sitesFullInfo = res.sites || [];
   siteDraft = sitesFullInfo.map(s => ({
     id: s.id, enabled: s.enabled, deleted: false, clear_session: false,
@@ -427,7 +475,13 @@ function updateApplyHint() {
 }
 
 document.getElementById('apply-sites-btn').addEventListener('click', async () => {
-  await window.pywebview.api.apply_sites_changes(siteDraft);
+  try {
+    await window.pywebview.api.apply_sites_changes(siteDraft);
+  } catch (err) {
+    applyHint.textContent = '应用失败：' + err;
+    applyHint.className = 'apply-hint warn';
+    return;
+  }
   settingsForceRefresh = true;
   await refreshSitesPanel();
   applyHint.textContent = '✓ 已应用';
@@ -466,7 +520,14 @@ async function openCredDialog(siteId) {
   if (info.needs_school) schoolWrap.style.display = '';
   if (info.type === 'tyche') bindingWrap.style.display = '';
 
-  const r = await window.pywebview.api.get_site_credentials(siteId);
+  let r;
+  try {
+    r = await window.pywebview.api.get_site_credentials(siteId);
+  } catch (err) {
+    // 读不到已保存的凭据也要让弹窗打开，否则用户以为按钮没反应
+    r = null;
+    credError.textContent = '读取已保存的账号密码失败：' + err;
+  }
   if (r && r.ok) {
     document.getElementById('cred-user').value = r.username || '';
     document.getElementById('cred-pass').value = r.password || '';
@@ -477,6 +538,9 @@ async function openCredDialog(siteId) {
       credError.textContent =
         '已保存的账号密码在当前电脑/Windows 账户下无法解密，请重新填写。';
     }
+  } else if (r && r.error) {
+    // get_site_credentials 确实会返回 {"error": "站点不存在"}
+    credError.textContent = r.error;
   }
 
   // 不同站点的账号叫法不一样
@@ -514,14 +578,28 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
     credError.textContent = '请填写学校全名';
     return;
   }
-  const r = await window.pywebview.api.save_site_credentials(credSiteId, u, p, school, bu, bp);
-  if (r.error) {
+  let r;
+  try {
+    r = await window.pywebview.api.save_site_credentials(credSiteId, u, p, school, bu, bp);
+  } catch (err) {
+    credError.textContent = '保存失败：' + err;
+    return;
+  }
+  if (r && r.error) {
+    // save_site_credentials 确实会返回 {"error": "站点不存在"}
     credError.textContent = r.error;
     return;
   }
   credBg.classList.remove('open');
   await refreshSitesPanel();
   settingsForceRefresh = true;
+  // 从顶部提示条点进来时设置面板本就没打开，没人会去关面板触发刷新，
+  // 提示条会一直停在旧文案上。这里主动刷新一次：顺带用新账密重新登录
+  // （改完密码本来也需要重登才能生效），代价是这次刷新要等抓取完成。
+  if (!settingsBg.classList.contains('open')) {
+    settingsForceRefresh = false;
+    await load();
+  }
 });
 
 // ============================================================
@@ -531,7 +609,14 @@ const autostartSwitch = document.getElementById('autostart-switch');
 const autostartStatus = document.getElementById('autostart-status');
 
 async function refreshAutostart() {
-  const r = await window.pywebview.api.get_autostart();
+  let r;
+  try {
+    r = await window.pywebview.api.get_autostart();
+  } catch (e) {
+    autostartStatus.textContent = '读取失败';
+    autostartStatus.className = 'status';
+    return;
+  }
   if (r && r.enabled) {
     autostartSwitch.classList.add('on');
     autostartStatus.textContent = '已开启';
@@ -547,9 +632,17 @@ autostartSwitch.addEventListener('click', async () => {
   const isOn = autostartSwitch.classList.contains('on');
   const target = !isOn;
   autostartSwitch.style.pointerEvents = 'none';
-  const r = await window.pywebview.api.set_autostart(target);
-  autostartSwitch.style.pointerEvents = '';
+  let r;
+  try {
+    r = await window.pywebview.api.set_autostart(target);
+  } catch (e) {
+    r = { error: String(e) };
+  } finally {
+    // 无论成功失败都要恢复点击，否则开关被永久锁死
+    autostartSwitch.style.pointerEvents = '';
+  }
   if (r && r.error) {
+    // set_autostart 确实会返回 {"error": ...}
     alert('设置失败：' + r.error);
     return;
   }

@@ -258,6 +258,107 @@ U 校园当前只抓取考试列表。
 
 ---
 
+## 🔍 发布前复审：查出并修掉的发布级缺陷
+
+v26.4 完成后做了一轮独立复审，以下是**经代码核实并按重要性修复**的问题。
+其中若干条属于「功能都正常、但出事时完全查不出原因」的类型，
+恰恰是最影响长期可用性的部分。
+
+### 1. exe 出错时完全看不见（最重要）
+
+打包配置是 `console=False`，窗口化运行时 `sys.stdout` 是 `None`，
+而全项目的关键过程都是 `print` —— **全部被静默丢弃**。
+结果就是：自动登录走到了哪一层、为什么失败，用户和开发者都无从得知。
+
+现在启动时会建立日志（`logs/app.log`，带轮转），并把 `print`
+一并收进日志；同时接上 `sys.excepthook`、`threading.excepthook`
+与 `faulthandler`。其中 `threading.excepthook` 尤其关键：
+抓取跑在 `ThreadPoolExecutor` 的 worker 线程里，主线程钩子抓不到它们。
+
+> 已知无害噪音：日志里可能出现一次
+> `Windows fatal exception: code 0x8001010d`，位置在
+> `webview\platforms\winforms.py` 的 `create()`。
+> 已用「只含 pywebview 的最小程序」复现确认，这是 pywebview/WebView2 的
+> 既有现象，**程序照常运行**，不需要排查。
+
+### 2. 程序放在受保护目录时可能完全起不来
+
+`controller.py` 与 `site_runner.py` 原先都在**模块导入期**就
+`os.makedirs(DATA_DIR)`，而 frozen 时 `BASE` 是 exe 所在目录。
+用户若把程序解压到 `Program Files`、`C:\` 根等位置，
+导入期就抛 `PermissionError`，**连界面都出不来**。
+
+现在导入期只解析路径、不建目录；目录创建与可写性探测推迟到 `main()`，
+不可写时回退到 `%LOCALAPPDATA%\HomeworkTasks`。
+**回退绝不静默**：会把原有 `sites.yaml` 与 `data/` 非破坏性复制过去，
+并在界面上明确告知新位置。
+
+### 3. 会话文件损坏后永远无法自愈
+
+`_fetch_one_site()` 原先把 `fetch_homeworks()` 的**任何**异常都归入
+`errors` 并直接返回，于是永远走不到后面的重登分支。
+而会话文件被写坏时，Playwright 抛的正是通用异常 ——
+结果是该站点**每次刷新都失败，只能靠用户手动删文件**。
+
+现在检测到「会话文件存在但读不出合法 JSON」时会删除它并转入重登，
+实现自愈。实测：把 `thu_session.json` 截断成半截 JSON，
+程序自动重登并抓回 5 条作业。
+
+### 4. 并发与文件完整性
+
+- **同一站点可能被两条路径同时操作**：刷新（线程池）与手动点「登录」
+  （js_api 线程）。两者都会跑完整登录流程（≥10 秒），
+  若并发会拉起两个浏览器并互相覆盖会话文件。
+  现在按站点加锁，用 `RLock`（`login_site` 会调用 `auto_relogin_site`，
+  普通 `Lock` 会自死锁）。
+- **会话文件与 `sites.yaml` 原先都是直写**（`open(...,"w")` 会先 truncate），
+  读方可能读到半截内容。现在统一改为「写临时文件 + `os.replace`」原子替换，
+  `sites.yaml` 另外保留 `.bak` 备份，损坏时可回退。
+- **写失败不再只 print**：`save_sites` 的失败会回传到界面，
+  避免出现「UI 说保存成功、文件其实没变」。
+
+### 5. 前端按钮的承诺与实际动作不符
+
+顶部提示条上，`bad_credentials` 的按钮写着「重新填账号密码」，
+但点击后对所有 reason 都走同一个 `api.login()` —— **弹出浏览器窗口**。
+`session_unstable` 的「重试登录」同理。
+
+现在按 reason 分流：`bad_credentials` 直接打开凭据填写弹窗，不弹浏览器。
+
+### 6. 前端对 js_api 失败零处理
+
+`await window.pywebview.api.login(...)` 没有 try/catch。
+pywebview 会把 Python 异常变成 rejected promise，于是按钮会
+**永久停在 disabled 的「正在打开登录窗口...」**，只能重开程序。
+现在所有 js_api 调用都包了 try/catch，失败时恢复可点击状态。
+
+同时删除了一处死分支：`main.js` 判断 `r.error === 'need_credentials'`，
+但 `Api.login()` 只返回 `{"ok": ...}`，该分支永远不会命中。
+
+### 7. 加密相关的两处小问题
+
+- `_plain()` 在「解密模块导入失败」时返回原值，会把 `enc:v1:…` 当明文
+  填进登录表单，与它自己文档承诺的「返回空串」矛盾。
+- `core/secrets.py` 用 `ctypes.windll` 加载 crypt32，未设
+  `use_last_error=True`，导致 `ctypes.get_last_error()` **恒为 0**，
+  报错时拿不到真正的 Win32 错误码。已改为 `ctypes.WinDLL(..., use_last_error=True)`。
+
+### 复审中评估后**未采纳**的一条
+
+复审提出「清华 SSO 的二次验证会被误判成密码错，进而按 30 分钟冷却、
+并误导用户去改一个本来正确的密码」，定级为高。
+
+**代码顺序问题属实**（正文错误扫描确实在 MFA 判断之前），
+**但结论经实测否掉了**：用真实账号触发二次验证页后，把 12 个错误标记
+逐个与页面正文比对，**全部未命中**（该页正文是
+「…本次登录需要进行二次验证。请选择以下方式之一获取验证码…」）。
+即当前代码在这种情况下会正确返回 `mfa`，不存在所述连锁后果。
+
+因此**未按该条描述去改**（避免为不存在的问题改动 MFA 判定路径），
+仅记录在案；若将来新增站点出现误判，再按「先判 MFA、再扫正文」处理。
+
+---
+
 ## ⚠️ 升级须知
 
 1. **账号密码现在是加密存储的。** 换电脑或换 Windows 账户后，

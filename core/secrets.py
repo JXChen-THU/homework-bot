@@ -63,11 +63,13 @@ def _bytes_from_blob(blob):
 
 
 def _crypt32():
-    return ctypes.windll.crypt32
+    # use_last_error=True 必须显式指定：否则 ctypes.get_last_error() 恒为 0，
+    # 报错时拿不到真正的 Win32 错误码，日志会误导排错。
+    return ctypes.WinDLL("crypt32", use_last_error=True)
 
 
 def _kernel32():
-    return ctypes.windll.kernel32
+    return ctypes.WinDLL("kernel32", use_last_error=True)
 
 
 def _protect(data):
