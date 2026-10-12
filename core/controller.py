@@ -5,7 +5,6 @@
 import os
 import sys
 import json
-import logging
 import threading
 import time
 import uuid
@@ -107,12 +106,11 @@ def upgrade_credentials():
         from core.site_runner import upgrade_plaintext_credentials
         upgrade_plaintext_credentials()
     except Exception as e:
-        logging.getLogger("app").warning(
-            "加密升级跳过：%s: %s", type(e).__name__, e)
+        print(f"[secrets] 加密升级跳过：{type(e).__name__}: {e}")
 
 
 def _setup_runtime_paths():
-    """解析数据目录、建目录、开日志。返回 (ok, 错误信息)。
+    """解析数据目录并创建它。返回 (ok, 错误信息)。
 
     必须在任何读写 data/ 或 sites.yaml 的动作之前调用。
     """
@@ -123,8 +121,6 @@ def _setup_runtime_paths():
     if not _paths.ensure_dirs():
         return False, f"无法创建数据目录：{_paths.DATA_DIR}"
 
-    _paths.setup_logging()
-
     # 同步到本模块与 site_runner（后者有自己的模块级常量）
     DATA_DIR = _paths.DATA_DIR
     DB = os.path.join(DATA_DIR, "homework.db")
@@ -132,21 +128,20 @@ def _setup_runtime_paths():
         from core import site_runner
         site_runner.apply_paths()
     except Exception as e:
-        logging.getLogger("app").warning("同步站点调度器路径失败：%s", e)
+        print(f"[init] 同步站点调度器路径失败：{type(e).__name__}: {e}")
 
-    logging.getLogger("app").info("数据目录：%s", DATA_DIR)
     return True, None
 
 
 def _fatal_dialog(title, message):
-    """用系统消息框告知用户（窗口化 exe 下没有控制台可看）。"""
+    """用系统消息框告知用户。
+
+    窗口化打包（console=False）下没有控制台可看，出问题必须靠弹窗，
+    否则用户只看到「程序没反应」。
+    """
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)  # MB_ICONERROR
-    except Exception:
-        pass
-    try:
-        logging.getLogger("app").error("%s: %s", title, message)
     except Exception:
         pass
 
@@ -771,21 +766,18 @@ def _startup_show_fallback():
 def main():
     global _main_window, _alert_window, _panel_window, _screen_w
 
-    # 1) 先解析数据目录 + 开日志。必须在任何 data/ 读写之前。
+    # 1) 先解析数据目录。必须在任何 data/ 读写之前。
     ok, err = _setup_runtime_paths()
     if not ok:
         _fatal_dialog("任务清单 - 无法启动", err)
         sys.exit(1)
-
-    log = logging.getLogger("app")
-    log.info("程序启动")
 
     # 2) 首次启动生成配置；把残留明文账密加密
     try:
         ensure_sites_yaml()
         upgrade_credentials()
     except Exception as e:
-        log.exception("启动初始化失败：%s", e)
+        print(f"[init] 启动初始化失败：{type(e).__name__}: {e}")
 
     api = Api()
 
@@ -834,13 +826,12 @@ def main():
 
         webview.start(_after_start)
     except Exception as e:
-        log.exception("界面启动失败：%s", e)
+        print(f"[gui] 界面启动失败：{type(e).__name__}: {e}")
         _fatal_dialog(
             "任务清单 - 界面无法启动",
             "程序界面启动失败，最常见的原因是缺少 Microsoft Edge WebView2 运行时。\n\n"
             "请到微软官网搜索并安装“WebView2 Runtime”（常青版即可），然后重新打开本程序。\n\n"
-            f"技术信息：{type(e).__name__}: {e}\n\n"
-            f"详细日志：{paths.LOG_PATH or '(未生成)'}"
+            f"技术信息：{type(e).__name__}: {e}"
         )
         sys.exit(1)
 

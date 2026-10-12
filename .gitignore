@@ -23,7 +23,6 @@ dist/
 
 # 日志
 *.log
-logs/
 recon-sandbox*/
 data/
 sites.yaml
