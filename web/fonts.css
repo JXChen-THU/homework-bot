@@ -1,54 +1,42 @@
 /* ============================================================================
-   字体：中文楷体 + 拉丁 Times（随应用打包，离线可用，无网络请求）
+   字体：直接使用 **系统已安装** 的字体，仓库与安装包都不再分发字体文件
    ----------------------------------------------------------------------------
-   中文：楷体_GB2312（单字重 400，没有真正的粗体，所以样式里 font-weight 一律 400，
-         否则浏览器会合成伪粗体，字会糊）
-   拉丁：Times New Roman 两款（常规 400 / 粗 700）
-         ★ 斜体两款（TIMESI / TIMESBI）已删除：全仓没有任何 `font-style: italic`，
-           也没有 <i>/<em> 标签，这两个面永远不会被选中（用它们换 1.87 MB 体积）。
-           700 面必须留着：样式里 12 处 `font-weight: 600` 按 CSS 字重匹配规则
-           会选中 ≥600 的最近字重，也就是 700 面。
+   为什么改：原先仓库里的 3 个 .ttf 都是商业字体，public 之后等于再分发，
+   许可上站不住。实测其中两个与 Windows 自带的
+   `C:\Windows\Fonts\times.ttf` / `timesbd.ttf` **逐字节相同**——就是把系统
+   字体复制进了仓库。改成引用系统字体后：仓库不含字体、包体积 -6.2 MB，
+   而本机观感不变（楷体与 Times New Roman 都是 Windows 自带）。
 
-   一个字体栈搞定中英混排：浏览器逐字回退 ——
-     英文、数字、符号 → Times
-     汉字与中文标点 → 楷体
-   （实测 TIMES.TTF 的 cmap 共 1592 个码位：有数字和 ASCII 冒号，
-     但没有 — … “ ” ， ： （ ＋ 这些，它们会自然落到楷体。）
+   中文用**现代楷体 KaiTi**（`simkai.ttf`），不用旧的 `楷体_GB2312`：
+   后者只有 GB2312 的 6763 个汉字，稍生僻的字会掉到宋体/雅黑，一行里字形
+   会不统一；现代 KaiTi 的覆盖范围大得多，且同为正版系统字体，许可上一样
+   （本机使用没问题，只是不能再分发文件）。
 
-   字体文件在 web/fonts/ 下。PyInstaller 已经收集整个 web/ 目录，
-   所以不需要改 HomeworkTasks.spec。
+   中英混排依旧靠字体栈顺序（浏览器逐字回退）：
+     英文、数字、符号 → Times New Roman（排第一，拉丁字形最好）
+     汉字与中文标点   → 楷体（Times 没有汉字，自动落到后面）
+
+   ★ 如果你就是要让程序自带字体（例如送给没装这些字体的机器）：
+     把 .ttf 放进 `web/fonts/`（该目录已被 .gitignore 挡住，不会进仓库），
+     然后在这里补回 @font-face，并把 "HW-Times"/"HW-Kai" 放回下面的栈首。
    ========================================================================== */
 
-@font-face {
-  font-family: "HW-Kai";
-  src: url("fonts/楷体_GB2312.TTF") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "HW-Times";
-  src: url("fonts/TIMES.TTF") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "HW-Times";
-  src: url("fonts/TIMESBD.TTF") format("truetype");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
-  /* 中英混排只用一个栈：拉丁 Times 打头，汉字自然落到楷体 */
-  --font-ui: "HW-Times", "HW-Kai", "KaiTi_GB2312", "KaiTi", "楷体", "Times New Roman", "Microsoft YaHei", serif;
+  /* 只用一个栈：拉丁打头 Times，汉字自然落到楷体。
+     同名字体可能以中/英两种家族名注册，所以两种都列上；
+     华文楷体只在没有 KaiTi 的机器上兜底，仍然是楷体观感。 */
+  --font-ui:
+    "Times New Roman",
+    "KaiTi", "楷体",
+    "华文楷体",
+    "SimSun", "宋体",
+    "Microsoft YaHei", "微软雅黑",
+    serif;
 }
 
 /* 全局生效：整个软件的字体都走这个栈。
-   用 html 选择器而不是 body —— 弹窗、浮窗、以及任何不在 body 直接继承链上的
-   元素（比如 ::before 生成的内容）都会拿到。
+   用 html 选择器而不是 body —— 弹窗、浮窗，以及任何不在 body 直接继承链上
+   的元素（比如 ::before 生成的内容）都会拿到。
    各页面样式里若又写了 font-family，会按层叠覆盖这里；三份样式文件里的
    body 规则都已改成 var(--font-ui)，改字体只改上面那一行。 */
 html {

@@ -23,8 +23,11 @@
 from PyInstaller.utils.hooks import collect_all
 
 # ---------------------------------------------------------------- 资源
+# ★ web/ 里**不含字体文件**：界面改用系统字体（见 web/fonts.css），
+#   所以这一项比 v26.5 之前小了 6.2 MB。若你按 fonts.css 的说明往
+#   web/fonts/ 放了 .ttf 想让本机打包自带字体，它会被 (\"web\", \"web\") 一起收进来。
 datas = [
-    ("web", "web"),                  # 页面 + CSS + JS + 字体
+    ("web", "web"),                  # 页面 + CSS + JS
     ("sites.yaml.template", "."),    # 首次启动生成 sites.yaml
 ]
 
