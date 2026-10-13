@@ -344,9 +344,11 @@ parse_time('2026-01-02 03:04:05+08:00') -> None
 1. **如果你是这一个仓库的维护者**：`docs/changelog/CHANGE v26.4.md` 里原先有明文密码，
    请先轮换对应账号的密码，再决定是否重写 git 历史。
 2. `sites.yaml.bak` 不再入库。如果你之前 clone 过，本地那份备份文件不会被删除，只是不再被跟踪。
-3. 打包命令不变（`pyinstaller HomeworkTasks.spec`），但 spec 内容变了：
-   它现在**只**收集运行必需资源，不会再带上 `data/`、`sites.yaml`、文档或备份。
-4. 打包产物体积下降：字体从 8.36 MB 降到 6.20 MB（删掉两个永不被选中的斜体面）。
+3. 打包不再用配方文件：`HomeworkTasks.spec` 已在后续按需求**从仓库移除**，
+   等价的命令行写在 README 的「打包」一节（`--add-data` / `--collect-all playwright` 那些参数）。
+   它**只**收集运行必需资源，不会再带上 `data/`、`sites.yaml`、文档或备份。
+4. 界面改用**系统字体**（见 `web/fonts.css`）：仓库与安装包都不再分发字体文件，
+   包体积再降 6.2 MB（此前那 3 个 .ttf 是商业字体，public 之后属于未授权再分发）。
 5. 如果你的 `data/` 目录被删过，或 `sites.yaml` 手工删掉了 `session:` 键，
    这一版会按站点 id 推断会话文件名，不再出现"登录了但永远显示未登录"。
 

@@ -16,8 +16,9 @@ sites.yaml
 *_courses.json
 
 # ---------------------------------------------------------------- 打包产物
-# 注意：HomeworkTasks.spec 是**发布配方，必须入库**（README 的打包步骤要用它），
-# 所以这里不能忽略 *.spec —— 早期版本忽略它，导致 clone 后按 README 打包必然失败。
+# 本项目**不再附带** PyInstaller 配方（HomeworkTasks.spec 已按需求删除），
+# 所以这里也不忽略 *.spec —— 你自己写的配方可以决定是否入库。
+# 打包用的等价命令写在 README 的「打包」一节。
 build/
 dist/
 
