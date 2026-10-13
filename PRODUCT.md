@@ -4,7 +4,8 @@
 
 ## Platform
 
-web
+web（仅指界面外壳：冻结包内是 pywebview + Edge WebView2，页面由本地 `file://` 加载。
+产品形态是 **Windows 10/11 桌面应用**，不是网站，也没有服务端。）
 
 ## Users
 
@@ -29,12 +30,12 @@ web
 
 - 常驻后台，支持开机自启（写 Windows 注册表 Run 项）。
 - 启动默认静默：不出现窗口，后台抓完；要看任务时点浮窗标题栏的「主面板」。
-- 两个桌面浮窗固定 360px 宽：红色 = 24 小时内截止或已过期（最多 8 行）；白色 = 其余未完成（最多 12 行）。
-- 浮窗高度由 `core/controller.py` 的 `_calc_height` 计算：红窗 `header 42 + n × row 20`，白窗 `header 46 + n × row 22`，上限 260 / 360，再 **+16** 的收尾余量。
+- 两个桌面浮窗固定 360px 宽：红色 = 24 小时内截止**或最近 3 天内过期**（最多 8 行）；白色 = 其余未完成（最多 12 行）。
+- 浮窗高度由 `core/controller.py` 的 `_calc_height` 计算：红窗 `header 42 + n × row 20`，白窗 `header 46 + n × row 22`，上限 260 / 360，再 **+16** 的收尾余量；条数超过 `max_rows` 时**再 +18**（留给「…还有 N 条」那一行）。
 - 主窗口 1000×720，创建后移动到屏幕右下角。
-- 浮窗只在任务刷新或状态变化时更新，不按固定间隔抓取。
-- 抓取进度以最多 3 行文字滚动显示，抓完自动收起。
-- 多平台并行抓取（默认 3 并发，`HOMEWORK_BOT_WORKERS` 可调）；启动时最多等网络 120 秒。
+- 浮窗只在任务刷新或状态变化时更新，不按固定间隔**抓取**；它每秒向主进程问一次"主窗口是否可见"，仅用于切换浮窗上那个按钮的状态。
+- 抓取进度以最多 3 行文字滚动显示，抓完自动收起；开场几行有刻意的慢放（累计上限 0.5 秒）。
+- 多平台并行抓取（默认 3 并发，`HOMEWORK_BOT_WORKERS` 可调）；**进程首轮**抓取最多等网络 120 秒，之后手动刷新不再等待。
 - 界面运行在 pywebview + Edge WebView2 桌面外壳内，页面由本地 `file://` 加载，不是网站。
 
 ## Capabilities and Constraints
@@ -46,24 +47,29 @@ web
 技术约束（直接影响界面实现，属硬约束）：
 
 - 纯 vanilla HTML/CSS/JS：**没有构建步骤、没有 npm / package.json、没有 CDN 与外部字体**，必须离线可用。
-- 三份样式文件 `main.css` / `panel.css` / `alert.css` 各自硬编码调色板；两个浮窗共用 `floating-common.js`。
+- 样式共 5 份：`theme-shared.css`（只有 token，三个页面各自在自己的样式表**之前**引入）、
+  `fonts.css`（内置字体声明）、以及 `main.css` / `panel.css` / `alert.css`。
+  页面样式表里仍存在大量字面色值（v26.5 已把"同一套 token 各写一遍"收敛到共享表，字面色值未收敛完）。
 - **浮窗高度由 Python 侧 `_calc_height` 决定 → CSS 行高与 `controller.py` 的 header/row 常量必须成对修改**，否则内容被裁切。
-- 前后端通过 pywebview `js_api` 通信；Python 异常在 JS 侧表现为 rejected promise（多处错误分支依赖这个语义）。
-- 打包由 PyInstaller 完成（`HomeworkTasks.spec` 收集 `web/`）；`dist/HomeworkTasks/_internal/web/` 是构建产物副本，当前落后于源码。
+- 前后端通过 pywebview `js_api` 通信，**每次调用跑在独立线程**（`webview/util.py` 里 `Thread(target=_call)`），
+  因此涉及"读—改—写"配置的接口必须自己加跨调用互斥；Python 异常在 JS 侧表现为 rejected promise（多处错误分支依赖这个语义）。
+- 打包由 PyInstaller 完成（`HomeworkTasks.spec`，**已入库**：README 让用户执行它，配方不入库会导致 clone 后打包必失败）。
+  配方只收集 `web/`、`sites.yaml.template` 与 playwright 运行时；`dist/` 是构建产物，不入库（本机是否存在取决于有没有构建过）。
 
 已确认的边界：未开通的平台不显示；U 校园目前只抓考试。
 
 ## Brand Commitments
 
-现有名称：作业清单 / HomeworkTasks（v26.4）。界面语言：简体中文。
+现有名称：作业清单 / HomeworkTasks（v26.5）。界面语言：简体中文。
 **用户未提出任何具有约束力的视觉资产或参考**：无 logo、无指定字体、无指定配色 → 视觉世界可被替换。
+（v26.5 实际选了：楷体_GB2312 + Times，浅色/深色/跟随系统三态；这是实现选择，不是品牌约束。）
 
 ## Evidence on Hand
 
-- `Work/README.md`：产品事实来源；`Work/docs/changelog/CHANGE v26.1–v26.4.md`。
+- `Work/README.md`：产品事实来源；`Work/docs/changelog/CHANGE v26.1.md` … `CHANGE v26.5.md`（按版本分开的独立文件，没有汇总单文件）。
+- `Work/docs/design/v26.5-UI重构落地记录.md`：v26.5 界面重构的落地记录与验收口径。
 - 真实任务数据形状（`uid` / `title` / `course` / `site_name` / `manual` / `url` / `end` / `done`），来自 `main.js` 的 `render()` 与 `core/task_logic.py`。
 - 真实平台名单与各平台登录差异（README 表格）。
-- 上一轮的界面验证基建：`recon-archive/fixes-verify/ui_preview_build.js`（把真实 CSS 内联 + 预置真实 DOM 的无头预览）。
 
 **缺失且未来工作不得编造**：真实截图资产、用户研究、遥测数据、任何用户数/评价/增长/平台合作信息。
 
@@ -77,7 +83,9 @@ web
 
 ## Accessibility & Inclusion
 
-- 文本与占位符对比度 ≥ 4.5:1（当前实测 6 处不达标，见 `design-verify` 审计输出）。
-- 键盘可达：不得存在只能靠 hover 才能发现或完成的操作（当前手动任务的「删除」按钮 `opacity: 0`，仅 hover 显示）。
-- 可点击目标 ≥ 24×24px（当前浮窗窗口按钮实测约 19px 高）。
+- 文本与占位符对比度 ≥ 4.5:1（**目标值**。v26.5 之前依赖 `design-verify/` 下的自动比对脚本，
+  该目录已按"清理无用产物"删除；改配色请人工核对三个窗口的对比度）。
+- 键盘可达：不得存在只能靠 hover 才能发现或完成的操作（v26.5 已确认：手动任务的「删除」按钮
+  常驻可见 `opacity: .55`，hover 或键盘聚焦时变清晰）。
+- 可点击目标 ≥ 24×24px（浮窗窗口按钮现为 26×26，见 `panel.css` 的"窗口按钮 24 → 26×26"）。
 - 中文界面在 1000×720 主窗口与 360px 宽浮窗内不得裁切或横向溢出。

@@ -1,6 +1,6 @@
-﻿import os
+import os
 from datetime import datetime
-from .base import Homework, LoginRequiredError
+from .base import Homework, LoginRequiredError, FetchFailedError, session_path
 
 
 def _iso_to_local(s):
@@ -133,7 +133,7 @@ def fetch_homeworks(site, base_dir):
     2. 调 /api/auth/session 拿课程列表
     3. 调 queryHomeworks 拿作业
     """
-    session = os.path.join(base_dir, site["session"])
+    session = session_path(base_dir, site)
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
@@ -150,47 +150,70 @@ def fetch_homeworks(site, base_dir):
         if not is_logged_in(pg, site):
             return False
         data = _fetch_session(pg)
-        courses = _extract_courses(data)
-        if not courses:
+        if not isinstance(data, dict) or data.get("_http") or data.get("_err"):
             return False
+        courses = _extract_courses(data)
+        cached["session"] = data
+        cached["courses"] = courses
+        if not courses:
+            # 已登录但一门课都没有：这是"没有课程"，不是"需要登录"。
+            # 以前这里返回 False，于是白等满 20 秒、最终仍被当成未登录，
+            # 用户被叫去"确认一次验证码"，而其实只是没选课/选课未同步。
+            cached["homeworks"] = {"success": True, "data": {"courseHomeworkDTOList": []}}
+            return True
         ids = [c["id"] for c in courses]
         hw = _fetch_homeworks(pg, ids)
         if isinstance(hw, dict) and hw.get("success"):
-            cached["session"] = data
-            cached["courses"] = courses
             cached["homeworks"] = hw
             return True
         return False
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
-        page = ctx.new_page()
-        page.goto(site["base_url"], wait_until="domcontentloaded")
+        try:
+            page = ctx.new_page()
+            page.goto(site["base_url"], wait_until="domcontentloaded")
 
-        ready = wait_for_ready(page, _ready, timeout_ms=20000,
-                               interval_ms=500, what="数你最灵作业接口")
+            ready = wait_for_ready(page, _ready, timeout_ms=20000,
+                                   interval_ms=500, what="数你最灵作业接口")
 
-        # 1. 拿课程列表
-        sess_data = cached.get("session") or _fetch_session(page)
-        courses = cached.get("courses") or _extract_courses(sess_data)
-        if not courses:
-            ctx.close()
-            raise LoginRequiredError(site["id"], site["name"])
+            # 1. 拿课程列表
+            sess_data = cached.get("session") or _fetch_session(page)
+            courses = cached.get("courses") if "courses" in cached else _extract_courses(sess_data)
+            if not courses:
+                if is_logged_in(page, site):
+                    # 有效会话 + 没有课程 = 完成 0 条，不是"需要登录"
+                    return []
+                raise LoginRequiredError(site["id"], site["name"])
 
-        course_ids = [c["id"] for c in courses]
-        course_map = {c["id"]: c["name"] for c in courses}
+            course_ids = [c["id"] for c in courses]
+            course_map = {c["id"]: c["name"] for c in courses}
 
-        # 2. 拿作业
-        data = cached.get("homeworks")
-        if data is None:
-            data = _fetch_homeworks(page, course_ids)
-        if not ready and not (isinstance(data, dict) and data.get("success")):
-            # 就绪轮询和这里都失败：再补一次机会，仍失败就当未登录处理
-            page.wait_for_timeout(2000)
-            data = _fetch_homeworks(page, course_ids)
-        ctx.close()
+            # 2. 拿作业
+            data = cached.get("homeworks")
+            if data is None:
+                data = _fetch_homeworks(page, course_ids)
+            if not ready and not (isinstance(data, dict) and data.get("success")):
+                # 就绪轮询和这里都失败：再补一次机会
+                page.wait_for_timeout(2000)
+                data = _fetch_homeworks(page, course_ids)
 
-        return _extract_homeworks(data, site, course_map)
+            if not (isinstance(data, dict) and data.get("success")):
+                # 接口失败要和"未登录"分开：会话有效时这是抓取失败（网络/接口），
+                # 报成"需要登录"会触发一次毫无意义的静默重登。
+                detail = ""
+                if isinstance(data, dict):
+                    detail = f"HTTP {data['_http']}" if data.get("_http") else (data.get("_err") or "success=false")
+                if is_logged_in(page, site):
+                    raise FetchFailedError(site["id"], site["name"], f"作业接口失败（{detail}）")
+                raise LoginRequiredError(site["id"], site["name"])
+
+            return _extract_homeworks(data, site, course_map)
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
 
 
 def login(site, base_dir, manual=True):

@@ -30,7 +30,7 @@
    不变量：
    1. 圆角只有三档 --r-ctl / --r-row / --r-panel；模糊只有三档；时长只有四个。
    2. 承载文字的表面必须够实：alpha 按"背后最坏情况"反算，
-      改 alpha 之前先重跑 design-verify/liquid-glass/verify.js。
+      改 alpha 前请人工核对三处浮窗的对比度（原自动验证脚本已移除）。
    3. 状态不能只靠颜色表达（同时有措辞 / 位置 / 线条差异）。
    ========================================================================== */
 
@@ -94,30 +94,12 @@
   
   
 
-  /* ---------- 浮窗 · 亮主题 = 浅色玻璃 + 墨字 ----------
-     浮窗窗口是真的（pywebview transparent=True），但**内容层给的是固有色底板**：
-     --float-tint 完全不透明，桌面不再透进来。
-     好处是对比度不再依赖壁纸 —— 浅色底 + 墨字是确定的数学关系，
-     不用再按"最坏壁纸"反算，也不怕花哨壁纸把可读性吃掉。
-     浅蓝 = 常驻白窗的标识色；橙红 = 紧急窗的标识色。 */
-  
-  --float-tint-top:   rgba(255, 255, 255, 0.72);
-  
-  
-  
-  
-  
-  
-  
-  
-  
-     /* 常驻窗：浅蓝标识 */
-  
-     /* 紧急窗：橙红标识 */
-  
-  
+  /* ---------- 浮窗配色见 theme-shared.css ----------
+     浮窗那套 --float-* / --plate-*（亮暗两套）已经全部收进
+     theme-shared.css，这里不再留副本，也不再留已经失效的、写死亮色值的
+     --float-tint / --float-tint-top。
+     （暗主题那套覆盖同样在共享表里，本文件不再重复。） */
 
-  /* ---------- 浮窗 · 暗主题 = 深色底板 + 白字 ---------- */
   
   
   
@@ -174,22 +156,6 @@ html[data-lg-dark] {
   
   
 
-  /* 浮窗整体切到深色玻璃 + 白字 */
-  
-  --float-tint-top:   var(--float-dark-tint-top);
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
 }
 
 /* 关掉系统透明效果：两套主题都退回实体色，对比度不变 */
@@ -198,12 +164,6 @@ html[data-lg-dark] {
     --surface:     #ffffff;
     --surface-row: #ffffff;
     --surface-hi:  #ffffff;
-    --float-tint:       #f7f9fc;
-    --float-tint-top:   #ffffff;
-  }
-  html[data-lg-dark] {
-    --float-tint:     #131a28;
-    --float-tint-top: #1b2434;
   }
 }
 
@@ -457,7 +417,6 @@ body {
   --plate-text2: #0c2740;
   /* 亮底板上所有半透明白都要换成"半透明墨"：白叠亮蓝等于没叠 */
   --plate-line:  rgba(11, 19, 32, 0.20);
-  --plate-hover: rgba(11, 19, 32, 0.10);
   --plate-btn:   rgba(255, 255, 255, 0.42);
   --plate-btn-hi: rgba(255, 255, 255, 0.66);
   /* 一块淡蓝板直接压在壁纸上会"发飘"，垫一层极淡的暗底给它一个面 */
@@ -483,7 +442,6 @@ body[data-kind="alert"] {
   /* 次级文字：底端 4.73:1 */
   --plate-text2: #3d1109;
   --plate-line:  rgba(11, 19, 32, 0.22);
-  --plate-hover: rgba(11, 19, 32, 0.10);
   --plate-btn:   rgba(255, 255, 255, 0.40);
   --plate-btn-hi: rgba(255, 255, 255, 0.64);
   --plate-under: rgba(11, 19, 32, 0.10);
@@ -519,7 +477,6 @@ html[data-lg-dark] body {
   --plate-text:  #ffffff;
   --plate-text2: #d8e2f2;
   --plate-line:  rgba(255, 255, 255, 0.18);
-  --plate-hover: rgba(255, 255, 255, 0.10);
   --plate-btn:   rgba(255, 255, 255, 0.12);
   --plate-btn-hi: rgba(255, 255, 255, 0.22);
 }
@@ -529,7 +486,6 @@ html[data-lg-dark] body[data-kind="alert"] {
   --plate-text:  #ffffff;
   --plate-text2: #f0d8e2;
   --plate-line:  rgba(255, 190, 210, 0.22);
-  --plate-hover: rgba(255, 255, 255, 0.12);
   --plate-btn:   rgba(255, 255, 255, 0.14);
   --plate-btn-hi: rgba(255, 255, 255, 0.24);
 }

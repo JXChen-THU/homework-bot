@@ -13,7 +13,6 @@
 本模块**不写任何日志文件**，只做路径解析。
 """
 
-import ctypes
 import os
 import sys
 import threading
@@ -67,44 +66,92 @@ def _writable(path):
         return False
 
 
+def _usable_root(path):
+    """数据根与它下面的 data/ 都要真的可写。
+
+    只探测根目录不够：根可写、但**已经存在**的 `data/` 子目录不可写时，
+    以前会误判为"可写"并停在这里，随后所有会话/数据库写入都会失败。
+    """
+    return _writable(path) and _writable(os.path.join(path, "data"))
+
+
+def _looks_empty_config(path):
+    """该 sites.yaml 是否只是空壳（一个可用站点都没有）。
+
+    用来避免目标目录里"上次运行自动生成/用户清空"的空配置**遮蔽**旧目录里的真实配置。
+    读不出来时一律返回 False —— 宁可不动，也不覆盖用户文件。
+    """
+    try:
+        import yaml
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        sites = data.get("sites") or []
+        return not [s for s in sites if isinstance(s, dict) and s.get("id")]
+    except Exception:
+        return False
+
+
 def _migrate(old_root, new_root):
     """把旧根目录里的用户文件**复制**到新根目录（只复制，绝不删除）。
 
-    返回迁移说明，没有可迁移文件时返回 None。
+    返回 (copied, skipped, failed) 三个列表，元素是给人看的中文短句。
+    以前这里把"目标已存在"和"复制失败"都当成功静默跳过，然后统一告诉用户
+    「原目录没有可迁移的配置」—— 用户在旧目录里的配置其实还在，只是被遮蔽了。
     """
-    moved = []
-    for name in ("sites.yaml",):
-        src = os.path.join(old_root, name)
-        dst = os.path.join(new_root, name)
-        if os.path.exists(src) and not os.path.exists(dst):
-            try:
-                import shutil
-                shutil.copy2(src, dst)
-                moved.append(name)
-            except Exception:
-                pass
+    import shutil
 
+    copied = []
+    skipped = []
+    failed = []
+
+    # ---- sites.yaml ----
+    src = os.path.join(old_root, "sites.yaml")
+    dst = os.path.join(new_root, "sites.yaml")
+    if os.path.isfile(src):
+        if not os.path.exists(dst):
+            try:
+                shutil.copy2(src, dst)
+                copied.append("sites.yaml")
+            except Exception as e:
+                failed.append(f"sites.yaml（{type(e).__name__}）")
+        elif _looks_empty_config(dst) and not _looks_empty_config(src):
+            try:
+                shutil.copy2(dst, dst + ".bak")
+                shutil.copy2(src, dst)
+                copied.append("sites.yaml（覆盖了目标目录里的空配置，旧文件存为 sites.yaml.bak）")
+            except Exception as e:
+                failed.append(f"sites.yaml（{type(e).__name__}）")
+        else:
+            skipped.append("sites.yaml")
+
+    # ---- data/ ----
     old_data = os.path.join(old_root, "data")
     new_data = os.path.join(new_root, "data")
     if os.path.isdir(old_data):
+        copied_n = skipped_n = 0
         try:
-            n = 0
             os.makedirs(new_data, exist_ok=True)
-            for name in os.listdir(old_data):
-                src = os.path.join(old_data, name)
-                dst = os.path.join(new_data, name)
-                if os.path.isfile(src) and not os.path.exists(dst):
-                    import shutil
-                    shutil.copy2(src, dst)
-                    n += 1
-            if n:
-                moved.append(f"data/（{n} 个文件）")
-        except Exception:
-            pass
+            for name in sorted(os.listdir(old_data)):
+                s = os.path.join(old_data, name)
+                d = os.path.join(new_data, name)
+                if not os.path.isfile(s):
+                    continue
+                if os.path.exists(d):
+                    skipped_n += 1
+                    continue
+                try:
+                    shutil.copy2(s, d)
+                    copied_n += 1
+                except Exception:
+                    failed.append(f"data/{name}")
+        except Exception as e:
+            failed.append(f"data/（{type(e).__name__}）")
+        if copied_n:
+            copied.append(f"data/（{copied_n} 个文件）")
+        if skipped_n:
+            skipped.append(f"data/（{skipped_n} 个文件已存在）")
 
-    if not moved:
-        return None
-    return "、".join(moved)
+    return copied, skipped, failed
 
 
 def resolve(root=None):
@@ -115,27 +162,36 @@ def resolve(root=None):
     global ROOT, DATA_DIR, SITES_FILE, FALLBACK_NOTICE, COPIED_NOTICE
 
     with _lock:
+        # 每次解析都从干净状态开始：否则同一进程里第二次 resolve() 会
+        # 把上一次的回退提示继续挂在 startup_messages() 里，报一个已不成立的"已改用 …"。
+        FALLBACK_NOTICE = None
+        COPIED_NOTICE = None
+
         preferred = root or _preferred_root()
 
         if root is not None:
             chosen = preferred
-        elif _writable(preferred):
+        elif _usable_root(preferred):
             chosen = preferred
         else:
             fallback = _localappdata_root()
-            if not _writable(fallback):
+            if not _usable_root(fallback):
                 # 两个都不可写：仍然停在首选位置，让上层报错，而不是假装成功
                 chosen = preferred
             else:
                 chosen = fallback
-                FALLBACK_NOTICE = (
-                    f"程序所在目录不可写，已改用 {chosen} 保存配置和登录状态。"
-                )
-                COPIED_NOTICE = _migrate(preferred, chosen)
-                if COPIED_NOTICE:
-                    FALLBACK_NOTICE += f"已把原有配置复制过去：{COPIED_NOTICE}。"
-                else:
-                    FALLBACK_NOTICE += "原目录没有可迁移的配置，请重新填写账号密码。"
+                copied, skipped, failed = _migrate(preferred, chosen)
+                COPIED_NOTICE = "、".join(copied) if copied else None
+                parts = [f"程序所在目录不可写，已改用 {chosen} 保存配置和登录状态。"]
+                if copied:
+                    parts.append("已从原目录复制：" + "、".join(copied) + "。")
+                if skipped:
+                    parts.append("目标目录已有同名文件、未覆盖：" + "、".join(skipped) + "。")
+                if failed:
+                    parts.append("复制失败：" + "、".join(failed) + "。")
+                if not copied and not skipped and not failed:
+                    parts.append("原目录没有可迁移的配置，请重新填写账号密码。")
+                FALLBACK_NOTICE = "".join(parts)
 
         ROOT = chosen
         DATA_DIR = os.path.join(chosen, "data")

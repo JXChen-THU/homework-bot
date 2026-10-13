@@ -1,6 +1,6 @@
-﻿import os
+import os
 from datetime import datetime
-from .base import Homework, LoginRequiredError
+from .base import Homework, LoginRequiredError, FetchFailedError, session_path
 
 
 def _ts_to_local(ms):
@@ -89,7 +89,7 @@ LOGIN = {
 
 def fetch_homeworks(site, base_dir):
     """静默抓取：加载会话 → 打开页面 → 调接口"""
-    session = os.path.join(base_dir, site["session"])
+    session = session_path(base_dir, site)
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
@@ -97,28 +97,41 @@ def fetch_homeworks(site, base_dir):
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
-        page = ctx.new_page()
-        page.goto(site["base_url"], wait_until="domcontentloaded")
+        try:
+            page = ctx.new_page()
+            page.goto(site["base_url"], wait_until="domcontentloaded")
 
-        # 轮询考试接口：能返回 success 就立刻继续（不等 networkidle）
-        wait_for_ready(
-            page,
-            lambda pg: (lambda d: isinstance(d, dict) and bool(d.get("success")))(
-                _fetch_exams(pg)),
-            timeout_ms=15000, what="U校园考试接口")
+            # 轮询考试接口：能返回 success 就立刻继续（不等 networkidle）
+            wait_for_ready(
+                page,
+                lambda pg: (lambda d: isinstance(d, dict) and bool(d.get("success")))(
+                    _fetch_exams(pg)),
+                timeout_ms=15000, what="U校园考试接口")
 
-        # 检查是否被踢回登录页
-        if "login" in page.url.lower() or "sso" in page.url.lower():
-            ctx.close()
-            raise LoginRequiredError(site["id"], site["name"])
+            # 检查是否被踢回登录页
+            if "login" in page.url.lower() or "sso" in page.url.lower():
+                raise LoginRequiredError(site["id"], site["name"])
 
-        data = _fetch_exams(page)
-        ctx.close()
+            data = _fetch_exams(page)
 
-        if not isinstance(data, dict) or not data.get("success"):
-            raise LoginRequiredError(site["id"], site["name"])
+            if not isinstance(data, dict) or not data.get("success"):
+                # 接口失败 ≠ 未登录：401/403 才算会话失效，
+                # 5xx 和网络异常是抓取失败（报成"需要登录"会触发无意义的重登）。
+                code = data.get("_http") if isinstance(data, dict) else None
+                if code in (401, 403):
+                    raise LoginRequiredError(site["id"], site["name"])
+                if code or (isinstance(data, dict) and data.get("_err")):
+                    raise FetchFailedError(
+                        site["id"], site["name"],
+                        f"考试接口失败（{('HTTP %s' % code) if code else data.get('_err')}）")
+                raise LoginRequiredError(site["id"], site["name"])
 
-        return _extract(data, site)
+            return _extract(data, site)
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
 
 
 def login(site, base_dir, manual=True):

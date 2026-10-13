@@ -11,8 +11,8 @@
    （例如主窗口的 --warn 与浮窗不同，那是主窗口自己的语义色，不是重复）。
 
    ★ 本文件只放 token，不放选择器与布局 —— 那些仍然各归各页。
-   ★ 改动本文件后必须重跑：node design-verify/liquid-glass/verify-snapshot.js compare before
-     （它逐元素比对计算样式 + 任务卡渐变带的像素，必须零差异。）
+   ★ 改动本文件的 alpha / 颜色后，请人工核对三处浮窗（主窗口、红浮窗、白浮窗）
+     在亮暗两个主题下的对比度；原先的自动比对脚本已随 design-verify/ 一起移除。
    ========================================================================== */
 
 /* ---------------------------------------------------------------- 亮主题（默认） */
@@ -30,7 +30,6 @@
   --danger-bg: rgba(210, 80, 60, 0.12);
   --danger-line: rgba(210, 80, 60, 0.30);
   --ok: #1d7a4a;
-  --ok-bg: rgba(60, 180, 120, 0.16);
   --ok-line: rgba(40, 150, 95, 0.30);
   --page: #e9eef7;
   --surface: rgba(255, 255, 255, 0.62);
@@ -60,32 +59,12 @@
   --t-over: 360ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --float-tint: #f7f9fc;
-  --float-shell-line: rgba(11, 19, 32, 0.10);
-  --float-text: #0b1320;
-  --float-text-2: #39445a;
-  --float-hairline: rgba(11, 19, 32, 0.10);
-  --float-btn: rgba(11, 19, 32, 0.05);
-  --float-btn-hi: rgba(11, 19, 32, 0.11);
   --float-focus: #1b4fd0;
-  --float-shadow: 0 14px 32px rgba(20, 28, 44, 0.20), 0 2px 6px rgba(20, 28, 44, 0.12);
-  --float-warn: #8f2a18;
   --float-mark: #2b6fd4;
   --float-mark-ink: #ffffff;
   --alert-mark: #c9451f;
-  --float-row-hover: rgba(11, 19, 32, 0.045);
-  --float-row-hi: rgba(11, 19, 32, 0.08);
-  --float-dark-tint: #141a26;
-  --float-dark-tint-top: rgba(255, 255, 255, 0.07);
-  --float-dark-text: #ffffff;
-  --float-dark-text-2: rgba(255, 255, 255, 0.88);
-  --float-dark-hairline: rgba(255, 255, 255, 0.14);
-  --float-dark-btn: rgba(255, 255, 255, 0.12);
-  --float-dark-btn-hi: rgba(255, 255, 255, 0.22);
-  --float-dark-shell-line: rgba(255, 255, 255, 0.34);
-  --float-dark-shadow: 0 18px 40px rgba(6, 10, 20, 0.42), 0 2px 6px rgba(6, 10, 20, 0.26);
-  --float-dark-row-hover: rgba(255, 255, 255, 0.16);
-  --float-dark-row-hi: rgba(255, 255, 255, 0.22);
+  /* 只保留仍被使用的暗色 token：--float-dark-focus 供暗色下的 --float-focus 使用。
+     其余 --float-dark-* 曾只是已删死 token 的别名，已一并移除。 */
   --float-dark-focus: #a9c4ff;
 }
 
@@ -104,7 +83,6 @@ html[data-lg-dark] {
   --danger-bg: rgba(255, 120, 100, 0.16);
   --danger-line: rgba(255, 120, 100, 0.30);
   --ok: #6fd39b;
-  --ok-bg: rgba(111, 211, 155, 0.16);
   --ok-line: rgba(111, 211, 155, 0.30);
   --page: #0d1220;
   --surface: rgba(255, 255, 255, 0.06);
@@ -122,16 +100,6 @@ html[data-lg-dark] {
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34), 0 1px 3px rgba(0, 0, 0, 0.28);
   --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.30);
   --shadow-lg: 0 28px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
-  --float-tint: var(--float-dark-tint);
-  --float-text: var(--float-dark-text);
-  --float-text-2: var(--float-dark-text-2);
-  --float-hairline: var(--float-dark-hairline);
-  --float-btn: var(--float-dark-btn);
-  --float-btn-hi: var(--float-dark-btn-hi);
-  --float-shell-line: var(--float-dark-shell-line);
-  --float-shadow: var(--float-dark-shadow);
-  --float-row-hover: var(--float-dark-row-hover);
-  --float-row-hi: var(--float-dark-row-hi);
   --float-focus: var(--float-dark-focus);
   --float-mark: #6aa6f5;
   --float-mark-ink: #0b1320;

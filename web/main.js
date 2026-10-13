@@ -106,7 +106,11 @@ function fmtRemaining(ms) {
 // ============================================================
 // 顶部提示条
 // ============================================================
-// 每个站点为什么需要登录，以及点了「登录」之后会发生什么
+// 每个站点为什么需要登录，以及点了「登录」之后会发生什么。
+// key = 后端 need_login[].reason（也可能来自 login() 返回的 reason）。
+// ★ 查表一律写 `LOGIN_HINTS[reason] || LOGIN_HINTS.default`：
+//   后端将来新增 reason 时只会退到通用话术，绝不会渲染出 undefined。
+//   唯一例外是按钮的失败话术（见下面点击处理），那里未收录时用更贴切的通用句。
 const LOGIN_HINTS = {
   no_credentials: {
     text: '未填账号密码，无法自动登录',
@@ -128,11 +132,36 @@ const LOGIN_HINTS = {
     text: '登录成功了但会话没能保存下来，请再点一次登录',
     btn: '重试登录',
   },
+  mfa: {
+    text: '自动登录已尝试，需要你确认一次验证码',
+    btn: '去验证',
+  },
+  no_adapter_support: {
+    text: '该平台不支持自动登录，请手动登录',
+    btn: '手动登录',
+  },
+  login_page_error: {
+    text: '登录页打不开，请检查网络后重试',
+    btn: '重试登录',
+  },
+  timeout: {
+    text: '登录超时，请重试',
+    btn: '重试登录',
+  },
+  exception: {
+    text: '登录过程出错，请重试或手动登录',
+    btn: '重试登录',
+  },
   default: {
     text: '登录状态已失效',
     btn: '登录',
   },
 };
+
+// 这些原因点下去是「重新填凭据」（openCredDialog），其余原因一律弹浏览器登录窗口。
+// 显式白名单而不是 if/else 兜底：将来后端新增 reason 时默认落到「弹登录窗口」
+// 这个安全动作，不会被静默当成填凭据。
+const CRED_DIALOG_REASONS = ['bad_credentials', 'no_credentials'];
 
 function renderBanners(errors, needLogin, startup) {
   let html = '';
@@ -153,12 +182,14 @@ function renderBanners(errors, needLogin, startup) {
     html += '<div class="banner warn"><div>需要登录以下站点：</div>';
     needLogin.forEach(s => {
       const hint = LOGIN_HINTS[s.reason] || LOGIN_HINTS.default;
-      // data-reason 决定按钮点下去该做什么：只有 bad_credentials 是「填凭据」，
-      // 其余原因才需要弹出登录窗口
+      // data-reason 决定按钮点下去该做什么：见下面点击处理里的白名单
       html += '<div class="login-row">'
         + `<button data-login-site="${escapeHtml(s.site_id)}" data-reason="${escapeHtml(s.reason || '')}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
         + `<span class="login-hint">${hint.text}</span>`
-        + '</div>';
+        + '</div>'
+        // detail 是可选的诊断摘要，只有后端给了才多渲染一行小字。
+        // 放在 .login-row 外面：那一行是 flex 横排，塞进去会和按钮挤在同一行。
+        + (s.detail ? `<div class="need-login-detail">${escapeHtml(s.detail)}</div>` : '');
     });
     html += '</div>';
   }
@@ -178,10 +209,10 @@ function renderBanners(errors, needLogin, startup) {
       const siteId = btn.dataset.loginSite;
       const reason = btn.dataset.reason;
 
-      // 「重新填账号密码」承诺的是填凭据，不是弹浏览器窗口：
-      // 直接打开凭据弹窗。openCredDialog 内部对查不到的站点有 `|| {}` 兜底，
-      // 没打开过设置面板（sitesFullInfo 为空）也能正常使用。
-      if (reason === 'bad_credentials') {
+      // 「重新填账号密码 / 登录」承诺的是填凭据，不是弹浏览器窗口：
+      // 白名单里的原因直接打开凭据弹窗（openCredDialog 内部对查不到的站点
+      // 有 `|| {}` 兜底，没打开过设置面板、sitesFullInfo 为空也能正常使用）。
+      if (CRED_DIALOG_REASONS.indexOf(reason) !== -1) {
         openCredDialog(siteId);
         return;
       }
@@ -196,9 +227,18 @@ function renderBanners(errors, needLogin, startup) {
           await load();
           return;
         }
-        // 后端只返回 {ok: ok}，没成功就是「未完成」，让用户能再点
+        // 后端返回 {ok, reason}。按 reason 说清楚这次卡在哪一步，
+        // 用户才知道该去确认验证码、还是该检查网络。
+        // 这里刻意不用 `|| LOGIN_HINTS.default`：未收录的 reason 说
+        // 「登录未完成，点击重试」比 default 那句干巴巴的「登录」更贴合现场。
+        // 用 text（原因）而不是 btn（动作）：btn 会拼出
+        // 「未完成：去验证，点击重试」这种像命令的句子。
+        const failReason = r && r.reason;
+        const failHint = failReason ? LOGIN_HINTS[failReason] : null;
         btn.disabled = false;
-        btn.textContent = '登录未完成，点击重试';
+        btn.textContent = failHint
+          ? '未完成：' + failHint.text + '，点击重试'
+          : '登录未完成，点击重试';
       } catch (e) {
         // pywebview 会把 Python 异常变成 rejected promise；
         // 不在这里恢复，按钮会永久停在 disabled 的「正在打开登录窗口...」
@@ -288,15 +328,23 @@ function render() {
 
   content.querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.addEventListener('change', async (e) => {
-      const uid = e.target.dataset.uid;
-      const done = e.target.checked;
+      const box = e.target;
+      const uid = box.dataset.uid;
+      const done = box.checked;
+      // 请求飞行期间锁住这个勾选框（与浮窗 floating-common.js 同一做法）：
+      // 后端一次 toggle_done 要落盘，连点会发出多条互相打架的写入。
+      box.disabled = true;
       try {
         await window.pywebview.api.toggle_done(uid, done);
       } catch (err) {
         // 后端没保存成功，勾选状态要退回，否则界面和真实数据不一致
-        e.target.checked = !done;
+        box.checked = !done;
         alert('保存勾选状态失败：' + err);
         return;
+      } finally {
+        // 失败回滚后必须解禁，否则这一行再也点不动。
+        // 成功路径上 render() 已经把整行换成新节点，这里恢复的是游离节点，无害。
+        box.disabled = false;
       }
 
       const it = items.find(x => x.uid === uid);
@@ -364,6 +412,18 @@ async function load() {
     render();
   } catch (e) {
     banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
+    // 列表本来是空的（首次加载就失败）才会出现「空白区 + 计数停在 0」这种
+    // 看着像"没有任务"的假象，这里给它一个明确的空态。
+    // 已经有内容时保持旧列表不动：抓取失败不该把用户正在看的任务擦掉。
+    if (!items.length) {
+      content.innerHTML = `
+        <div class="empty failed">
+          <div class="msg">加载失败</div>
+          <div class="sub">点右上角的「刷新任务」重试</div>
+        </div>`;
+      document.getElementById('cnt-todo').textContent = '0';
+      document.getElementById('cnt-done').textContent = '0';
+    }
   } finally {
     refreshBtn.disabled = false;
     loadingHint.textContent = '';
@@ -510,8 +570,13 @@ function renderSites() {
 
     let credBadge = '';
     let credBtn = '';
-    // 雨课堂靠微信扫码，不需要账号密码；其余站点都支持「填账号密码后后台静默登录」
-    if (s.type !== 'yuketang') {
+    // 雨课堂靠微信扫码，不需要账号密码；其余站点都支持「填账号密码后后台静默登录」。
+    // 优先读后端能力位 supports_silent_login（类型字面量是会变的实现细节），
+    // 字段缺失时回退到原来的 type 判断，老后端也不会把按钮藏掉。
+    const supportsSilentLogin = (typeof s.supports_silent_login === 'boolean')
+      ? s.supports_silent_login
+      : s.type !== 'yuketang';
+    if (supportsSilentLogin) {
       if (s.credentials_broken) {
         // 换了电脑或 Windows 账户，密文解不开
         credBadge = '<span class="cred broken">密码需重填</span>';
@@ -634,11 +699,6 @@ async function openCredDialog(siteId) {
   schoolWrap.style.display = 'none';
   bindingWrap.style.display = 'none';
 
-  // 先从站点列表里拿类型信息，决定显示哪些字段
-  const info = (sitesFullInfo || []).find(x => x.id === siteId) || {};
-  if (info.needs_school) schoolWrap.style.display = '';
-  if (info.type === 'tyche') bindingWrap.style.display = '';
-
   let r;
   try {
     r = await window.pywebview.api.get_site_credentials(siteId);
@@ -662,6 +722,17 @@ async function openCredDialog(siteId) {
     credError.textContent = r.error;
   }
 
+  // 类型判定必须在 await 之后：get_site_credentials 返回的 type 是唯一
+  // 不依赖「设置面板是否打开过」的来源。
+  // 之前是在 await 之前读 sitesFullInfo —— 那个数组只在 refreshSitesPanel()
+  // 之后才有值，于是从顶部提示条直接打开（或首次启动就点）时，
+  // 学校字段和 Tyche 的 Basic 凭据字段永远是隐藏的：
+  // 数你最灵用户没入口填学校全名，Tyche 的 Basic 凭据被空串覆盖。
+  const info = (sitesFullInfo || []).find(x => x.id === siteId) || {};
+  const siteType = (r && r.type) || info.type || '';
+  if (siteType === 'smartestu' || info.needs_school) schoolWrap.style.display = '';
+  if (siteType === 'tyche') bindingWrap.style.display = '';
+
   // 不同站点的账号叫法不一样
   const labels = {
     thuoj: ['学号', '清华账号密码'],
@@ -670,7 +741,7 @@ async function openCredDialog(siteId) {
     unipus: ['手机号 / 邮箱', '密码'],
     tyche: ['网站账号', '网站密码'],
   };
-  const lb = labels[info.type] || ['账号', '密码'];
+  const lb = labels[siteType] || ['账号', '密码'];
   document.getElementById('cred-user-label').textContent = lb[0];
   document.getElementById('cred-pass-label').textContent = lb[1];
 
@@ -691,15 +762,25 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
   const school = document.getElementById('cred-school').value.trim();
   const bu = document.getElementById('cred-binding-user').value.trim();
   const bp = document.getElementById('cred-binding-pass').value;
+  // 隐藏的字段说明这个站点不适用（例如雨课堂不要学校名、非 Tyche 没有 Basic
+  // 凭据）。这时传 null 而不是空串：后端用 `is not None` 判断「这次要不要改」，
+  // 传空串等于把已存好的配置擦掉。
+  const schoolVisible = document.getElementById('cred-school-wrap').style.display !== 'none';
+  const bindingVisible = document.getElementById('cred-binding-wrap').style.display !== 'none';
   if (!u) { credError.textContent = '请填写账号'; return; }
   if (!p) { credError.textContent = '请填写密码'; return; }
-  if (document.getElementById('cred-school-wrap').style.display !== 'none' && !school) {
+  if (schoolVisible && !school) {
     credError.textContent = '请填写学校全名';
     return;
   }
   let r;
   try {
-    r = await window.pywebview.api.save_site_credentials(credSiteId, u, p, school, bu, bp);
+    r = await window.pywebview.api.save_site_credentials(
+      credSiteId, u, p,
+      schoolVisible ? school : null,
+      bindingVisible ? bu : null,
+      bindingVisible ? bp : null
+    );
   } catch (err) {
     credError.textContent = '保存失败：' + err;
     return;
@@ -831,13 +912,8 @@ async function refreshStartupBehavior() {
     silentStatus.className = 'status';
     return;
   }
-  // 后端读取失败时是正常返回 {"mode":..., "error":...}，上面 catch 接不到；
-  // 读不到就说「读取失败」，别谎报成某个模式。
-  if (r && r.error) {
-    silentStatus.textContent = '读取失败';
-    silentStatus.className = 'status';
-    return;
-  }
+  // 后端只返回 {"mode": ...}，读取失败会走上面的 catch（pywebview 把异常
+  // 变成 rejected promise），正常返回里没有 error 字段可判。
   if (r && r.mode === 'silent') {
     silentModeSwitch.classList.add('on');
     silentStatus.textContent = '已开启';
@@ -917,7 +993,16 @@ setInterval(() => {
     if (!cb) return;
     const it = items.find(x => x.uid === cb.dataset.uid);
     if (!it || it.done) return;
+    const ms = remainingMs(it.end);
     const daysEl = el.querySelector('.days');
-    if (daysEl) daysEl.textContent = fmtRemaining(remainingMs(it.end));
+    if (daysEl) daysEl.textContent = fmtRemaining(ms);
+    // 倒计时跨过「截止 / 24 小时」两条线时，行的状态色也要跟着变，
+    // 用的是与 render() 完全相同的阈值。
+    // ★ 这里只增删 class，绝不调 render()：整块重建会重置滚动位置、
+    //   输入焦点和用户正在操作的复选框。
+    const expired = ms !== null && ms <= 0;
+    const urgent = ms !== null && ms > 0 && ms < 24 * 3600 * 1000;
+    el.classList.toggle('expired', expired);
+    el.classList.toggle('urgent', urgent);
   });
 }, 60 * 1000);

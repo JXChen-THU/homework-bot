@@ -1,5 +1,5 @@
-﻿import os
-from .base import Homework, LoginRequiredError
+import os
+from .base import Homework, LoginRequiredError, FetchFailedError, session_path
 
 
 def _creds(site):
@@ -9,7 +9,10 @@ def _creds(site):
     直接读字段会把 "enc:v1:..." 当账号发出去，服务器回 401。
     """
     from .auth import http_credentials
-    return http_credentials(site) or {"username": "", "password": ""}
+    # 没有 Basic Auth 就返回 None：不要伪造一对空凭据传给浏览器。
+    # 空 Authorization 头会抑制 Basic Auth 弹窗（用户看不到输入框），
+    # 而 auth._context_args 在同一件事上早就有"空就不传这个键"的守卫。
+    return http_credentials(site)
 
 
 def _fetch_group(page, gid):
@@ -77,35 +80,56 @@ LOGIN = {
 
 def fetch_homeworks(site, base_dir):
     """静默抓取"""
-    session = os.path.join(base_dir, site["session"])
+    session = session_path(base_dir, site)
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
     from .auth import browser_session, wait_for_ready
 
     with browser_session() as browser:
-        # 关键：http_credentials 自动填 Basic Auth 弹窗
-        ctx = browser.new_context(
-            storage_state=session,
-            http_credentials=_creds(site),
-        )
-        page = ctx.new_page()
-        page.goto(site["base_url"], wait_until="domcontentloaded")
+        # 关键：http_credentials 自动填 Basic Auth 弹窗。
+        # 但**没填/填不全时不能传空凭据**：那会让浏览器对挑战回一个空
+        # Authorization 头，直接把 Basic Auth 弹窗顶掉。与 auth._context_args
+        # 的守卫保持同一语义。
+        ctx_args = {"storage_state": session}
+        hc = _creds(site)
+        if hc:
+            ctx_args["http_credentials"] = hc
+        ctx = browser.new_context(**ctx_args)
+        try:
+            page = ctx.new_page()
+            page.goto(site["base_url"], wait_until="domcontentloaded")
 
-        # 轮询 ShowGroup 接口：一旦能拿到数据就立刻继续，
-        # 比等 networkidle 快，也顺便完成了登录判定。
-        data = {}
-        wait_for_ready(
-            page,
-            lambda pg: _is_success(_fetch_group(pg, site["gid"])),
-            timeout_ms=15000, what="Tyche 作业接口")
-        data = _fetch_group(page, site["gid"])
-        ctx.close()
+            # 轮询 ShowGroup 接口：一旦能拿到数据就立刻继续，
+            # 比等 networkidle 快，也顺便完成了登录判定。
+            wait_for_ready(
+                page,
+                lambda pg: _is_success(_fetch_group(pg, site["gid"])),
+                timeout_ms=15000, what="Tyche 作业接口")
+            data = _fetch_group(page, site["gid"])
 
-        if not _is_success(data):
-            raise LoginRequiredError(site["id"], site["name"])
+            if not _is_success(data):
+                status = data.get("status") if isinstance(data, dict) else None
+                code = data.get("code") if isinstance(data, dict) else None
+                # 接口层错误要和"未登录"分开，否则一次 500 或网络抖动就会被
+                # 当成会话失效，触发一次毫无意义的静默重登，还给出错误横幅。
+                if status == "http_error":
+                    if code in (401, 403):
+                        raise LoginRequiredError(site["id"], site["name"])
+                    raise FetchFailedError(site["id"], site["name"], f"作业接口 HTTP {code}")
+                if status == "fetch_error":
+                    raise FetchFailedError(
+                        site["id"], site["name"],
+                        f"作业接口请求失败：{data.get('message') or '未知网络错误'}")
+                # parse_error / 非成功数据：多半是被重定向到登录页，按未登录处理
+                raise LoginRequiredError(site["id"], site["name"])
 
-        return _extract(data, site)
+            return _extract(data, site)
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
 
 
 def login(site, base_dir, manual=True):

@@ -3,7 +3,11 @@
    ----------------------------------------------------------------------------
    中文：楷体_GB2312（单字重 400，没有真正的粗体，所以样式里 font-weight 一律 400，
          否则浏览器会合成伪粗体，字会糊）
-   拉丁：Times New Roman 四款（常规 / 粗 / 粗斜 / 斜）
+   拉丁：Times New Roman 两款（常规 400 / 粗 700）
+         ★ 斜体两款（TIMESI / TIMESBI）已删除：全仓没有任何 `font-style: italic`，
+           也没有 <i>/<em> 标签，这两个面永远不会被选中（用它们换 1.87 MB 体积）。
+           700 面必须留着：样式里 12 处 `font-weight: 600` 按 CSS 字重匹配规则
+           会选中 ≥600 的最近字重，也就是 700 面。
 
    一个字体栈搞定中英混排：浏览器逐字回退 ——
      英文、数字、符号 → Times
@@ -34,20 +38,6 @@
   src: url("fonts/TIMESBD.TTF") format("truetype");
   font-weight: 700;
   font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "HW-Times";
-  src: url("fonts/TIMESI.TTF") format("truetype");
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-@font-face {
-  font-family: "HW-Times";
-  src: url("fonts/TIMESBI.TTF") format("truetype");
-  font-weight: 700;
-  font-style: italic;
   font-display: swap;
 }
 

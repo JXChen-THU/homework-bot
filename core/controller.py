@@ -53,8 +53,9 @@ AUTOSTART_NAME = "HomeworkTasks"
 _main_window = None
 _alert_window = None
 _panel_window = None
-_screen_w = 1920
-_screen_h = 1080
+# 屏幕尺寸用**单个元组**保存：GUI 回调线程会写、worker/js_api 线程会读，
+# 两个独立全局变量会被读到"新宽 + 旧高"（元组解包/赋值本身是原子的）。
+_screen_size = (1920, 1080)
 _items_cache = []
 _cache_lock = threading.Lock()
 
@@ -64,10 +65,11 @@ _main_ready = False          # 主窗口前端已就绪，可以安全 evaluate_
 _main_visible = False
 _first_load_done = False
 _startup_shown = False       # 启动期的首轮显示已经做过（直接显示档用）
-_alert_shown = False
-_panel_shown = False
-_main_positioned = False
 _quit_flag = False
+
+# 启动期需要让用户看到的问题（数据目录回退、明文升级失败等）。
+# 窗口化 exe 下 print 会被丢弃，这类问题必须有别的出口。
+_startup_warnings = []
 
 # 启动行为：silent 启动时窗口全程不出现；visible 启动即显示界面。
 # 真正的值从 sites.yaml 读（老配置没有这个键 → 用默认值）。
@@ -111,12 +113,26 @@ def upgrade_credentials():
 
     历史配置文件（或用户手工写的明文）会在这一步自动变成密文，
     用户不需要做任何操作。
+
+    失败必须让用户看见：窗口化 exe 下 print 会被丢弃，而"以为是密文、
+    其实磁盘上还是明文"是安全承诺（README）里最不该静默的一条。
     """
     try:
-        from core.site_runner import upgrade_plaintext_credentials
+        from core.site_runner import upgrade_plaintext_credentials, upgrade_error
         upgrade_plaintext_credentials()
+        err = upgrade_error()
+        if err:
+            _startup_warnings.append({
+                "kind": "err",
+                "text": "账号密码加密升级失败，磁盘上可能仍是明文。",
+                "detail": str(err),
+            })
     except Exception as e:
-        print(f"[secrets] 加密升级跳过：{type(e).__name__}: {e}")
+        _startup_warnings.append({
+            "kind": "err",
+            "text": "账号密码加密升级未能执行。",
+            "detail": f"{type(e).__name__}: {e}",
+        })
 
 
 def _setup_runtime_paths():
@@ -170,7 +186,14 @@ def _calc_height(n, header=42, row=22, max_rows=8, max_h=260):
 
 
 def _sync_main():
-    if not _main_window:
+    """把缓存里的任务同步给主窗口前端。
+
+    必须先看 `_main_ready`：pywebview 的 `evaluate_js` 带 `@_pywebview_ready_call`，
+    未就绪时会先阻塞等 20 秒（见 _push_progress 的同一约定）。
+    这条路径会被**浮窗勾选**触发（toggle_done → _sync_main），
+    主窗口前端若还没上报就绪，浮窗点一下就会白等 20 秒。
+    """
+    if not _main_ready or not _main_window:
         return
     with _cache_lock:
         items = list(_items_cache)
@@ -197,14 +220,14 @@ def _main_geometry(W: int, H: int):
 
 
 def show_main_window():
-    global _main_visible, _main_positioned
+    global _main_visible
     if not _main_window:
         return
     try:
         # ★ 屏幕尺寸优先用启动时那次探测的结果（_primary_screen_size 在
         #   webview.start() 之前就能拿到，且与 pywebview 的 Screen 同单位）。
         #   拿不到才退回 webview.screens / 默认值。
-        W, H = _screen_w, _screen_h
+        W, H = _screen_size
         if W <= 0 or H <= 0:
             try:
                 first = next(iter(webview.screens))
@@ -221,7 +244,6 @@ def show_main_window():
         _main_window.resize(MW, MH)
         _main_window.move(MX, MY)
         _main_window.show()
-        _main_positioned = True
     except Exception:
         pass
     _main_visible = True
@@ -319,7 +341,6 @@ def layout_all():
     """重新布局红窗和白窗。
     - 用户最小化或关闭的浮窗不再自动弹出
     """
-    global _alert_shown, _panel_shown
     if not _alert_window or not _panel_window:
         return
 
@@ -329,7 +350,7 @@ def layout_all():
     urgent = compute_urgent(items)
     normal = compute_normal(items, urgent)
 
-    W = _screen_w
+    W = _screen_size[0]
     y_default = ALERT_MARGIN
 
     # ========== 红窗 ==========
@@ -342,7 +363,6 @@ def layout_all():
                 # 先摆位再显示：顺序反了会先在系统默认位置闪一帧
                 place_float(_alert_window, w, h, W - ALERT_W - ALERT_MARGIN, y_default)
                 _alert_window.show()
-                _alert_shown = True
             except Exception:
                 pass
 
@@ -370,7 +390,6 @@ def layout_all():
                 y = alert_bottom if (urgent and not _alert_dismissed) else y_default
                 place_float(_panel_window, w, h, W - ALERT_W - ALERT_MARGIN, y)
                 _panel_window.show()
-                _panel_shown = True
             except Exception:
                 pass
     else:
@@ -407,8 +426,8 @@ def layout_all():
 #   gui.get_position()，后端已经做了 physical → logical 的换算（/scale），
 #   与 move() 期望的 logical 单位一致，可以直接比。
 #
-# 纯逻辑在 core/float_place.py 里，单独成模块是为了能被直接测试：
-#   node design-verify/liquid-glass/verify-float-place.js
+# 纯逻辑在 core/float_place.py 里，单独成模块是为了能被直接测试
+# （原先的自动验证脚本已随 design-verify/ 一起移除，改这段请人工核对定位行为）。
 from core.float_place import place_float
 
 
@@ -455,11 +474,6 @@ def _primary_screen_size(fallback_w: int = 1920, fallback_h: int = 1080):
     except Exception:
         pass
     return fallback_w, fallback_h
-
-
-def _primary_screen_w(fallback: int = 1920) -> int:
-    """只要宽度时的便捷包装。"""
-    return _primary_screen_size(fallback, 1080)[0]
 
 
 # ============================================================
@@ -511,15 +525,29 @@ def set_autostart_status(enabled):
 # ============================================================
 class Api:
     def alert_ready(self):
+        """浮窗前端已就绪。
+
+        顺序有讲究：**先**尝试注入布局，**再**置就绪标志。
+        反过来的话，layout_all() 抛异常会让这一次调用变成 rejected promise，
+        前端 `pywebviewready` 回调里后面的 refreshMainVisible()/setInterval 都不执行，
+        而标志已经是 True —— 浮窗从此不再自动刷新，也没有任何重试入口。
+        """
         global _alert_ready
+        try:
+            layout_all()
+        except Exception as e:
+            print(f"[float] 首帧布局失败（下次刷新会重试）：{type(e).__name__}: {e}")
         _alert_ready = True
-        layout_all()
         return {"ok": True}
 
     def panel_ready(self):
+        """白窗前端已就绪。理由同 alert_ready。"""
         global _panel_ready
+        try:
+            layout_all()
+        except Exception as e:
+            print(f"[float] 首帧布局失败（下次刷新会重试）：{type(e).__name__}: {e}")
         _panel_ready = True
-        layout_all()
         return {"ok": True}
 
     # ---------- 主窗口显示/隐藏 ----------
@@ -586,15 +614,11 @@ class Api:
         """
         global _alert_dismissed, _panel_dismissed
         global _alert_minimized, _panel_minimized
-        global _alert_shown, _panel_shown
 
         _alert_dismissed = False
         _panel_dismissed = False
         _alert_minimized = False
         _panel_minimized = False
-        # 重置定位标志，让浮窗重新回到右上角（避免上次拖走后位置怪怪的）
-        _alert_shown = False
-        _panel_shown = False
 
         # 关键：从任务栏恢复（如果之前被最小化），show() 对已最小化的窗口无效
         for w in (_alert_window, _panel_window):
@@ -679,7 +703,7 @@ class Api:
                 show_main_window()
 
         return {"items": items, "errors": errors, "need_login": need_login,
-                "startup": paths.startup_messages()}
+                "startup": paths.startup_messages() + list(_startup_warnings)}
 
     # ---------- 打开原网页 ----------
     def open_url(self, url):
@@ -734,9 +758,15 @@ class Api:
         login_site 会先试一次无头静默登录，不行再弹出可见窗口；
         对于清华 SSO 这种要求二次验证的站点，可见窗口里的账号密码
         已经自动填好，用户只需要输入验证码。
+
+        必须把 reason 带出去：前端为每种失败原因准备了不同话术
+        （密码错 / 需要验证码 / 平台不支持 / 网络故障），
+        以前只回 {"ok": ok}，用户只能看到"登录未完成，点击重试"，
+        分不清是该去改密码还是该去过验证码，于是反复点同一个按钮、
+        反复拉起真实 Edge 窗口。
         """
-        ok = login_site(site_id)
-        return {"ok": ok}
+        ok, reason = login_site(site_id)
+        return {"ok": ok, "reason": reason}
 
     # ---------- 手动任务 ----------
     def add_task(self, title, course, due, url):
@@ -799,15 +829,18 @@ class Api:
 
     # ---------- 设置面板：站点管理 ----------
     def list_sites(self):
-        from core.site_runner import load_sites, DATA_DIR as _DATA
-        from adapters.auth import _plain, has_credentials, credentials_broken
+        from core.site_runner import load_sites, DATA_DIR as _DATA, supports_silent_login
+        from adapters.auth import _plain, has_credentials, credentials_broken, session_path
         sites = load_sites(include_disabled=True)
         result = []
         for s in sites:
-            sess = s.get("session")
+            # 会话文件名要与登录/抓取用同一套口径：配置里没写 session 时按 id 推断，
+            # 否则这里永远显示"未登录"。
             has_session = False
-            if sess:
-                has_session = os.path.exists(os.path.join(_DATA, sess))
+            try:
+                has_session = os.path.exists(session_path(_DATA, s))
+            except Exception:
+                pass
             # 所有站点都支持「填账号密码 → 后台静默登录」，雨课堂除外（必须扫码）
             stype = s.get("type")
             result.append({
@@ -825,7 +858,9 @@ class Api:
                 # 用解密后的值判断，密文解不开时视为没填
                 "has_basic_auth": bool(_plain(s.get("basic_user"))
                                        and _plain(s.get("basic_pass"))),
-                "supports_silent_login": stype != "yuketang",
+                # 能力位来自适配器模块（唯一出处），前端据此决定要不要显示
+                # 「填账号密码」按钮，不再自己硬编码类型字面量。
+                "supports_silent_login": supports_silent_login(stype),
             })
         return {"sites": result}
 
@@ -856,40 +891,61 @@ class Api:
 
     def save_site_credentials(self, site_id, username, password,
                               school=None, basic_user=None, basic_pass=None):
-        """保存站点账号密码（加密后写入 sites.yaml）。"""
-        from core.site_runner import load_sites, save_sites
+        """保存站点账号密码（加密后写入 sites.yaml）。
+
+        整段「读—改—写」放在 config_transaction() 里：pywebview 给每次 js_api
+        调用起一个独立线程，而 apply_sites_changes/save_startup_mode 走的是
+        同一条"整体覆盖 sites 数组"的路径；不加这把锁，两次调用重叠时后完成者
+        会用旧快照把前一次改动整块抹掉，而两次都返回 {"ok": True}。
+        """
+        from core.site_runner import load_sites, save_sites, config_transaction, _relogin_clear
         from core.secrets import encrypt
-        sites = load_sites(include_disabled=True)
-        for s in sites:
-            if s["id"] == site_id:
-                s["username"] = encrypt((username or "").strip())
-                s["password"] = encrypt((password or "").strip())
-                if school is not None:
-                    s["school"] = (school or "").strip()
-                if basic_user is not None:
-                    s["basic_user"] = encrypt((basic_user or "").strip())
-                if basic_pass is not None:
-                    s["basic_pass"] = encrypt((basic_pass or "").strip())
-                ok, err = save_sites(sites)
-                if not ok:
-                    # 不能只 print：窗口化 exe 下 print 会被丢弃，
-                    # 用户会看到"保存成功"而文件其实没变。
-                    return {"error": f"写入 sites.yaml 失败：{err}"}
-                # 账号密码变了，清掉旧会话，下次刷新会用新账号重新登录
-                self._wipe_session_files(s["id"], s.get("session"))
-                return {"ok": True}
-        return {"error": "站点不存在"}
+        with config_transaction():
+            sites = load_sites(include_disabled=True)
+            for s in sites:
+                if s["id"] == site_id:
+                    s["username"] = encrypt((username or "").strip())
+                    s["password"] = encrypt((password or "").strip())
+                    if school is not None:
+                        s["school"] = (school or "").strip()
+                    if basic_user is not None:
+                        s["basic_user"] = encrypt((basic_user or "").strip())
+                    if basic_pass is not None:
+                        s["basic_pass"] = encrypt((basic_pass or "").strip())
+                    ok, err = save_sites(sites)
+                    if not ok:
+                        # 不能只 print：窗口化 exe 下 print 会被丢弃，
+                        # 用户会看到"保存成功"而文件其实没变。
+                        return {"error": f"写入 sites.yaml 失败：{err}"}
+                    # 账号密码变了，清掉旧会话，下次刷新会用新账号重新登录
+                    self._wipe_session_files(s["id"])
+                    # 同时清掉自动重登的冷却与上次失败原因：这是最该清冷却的路径，
+                    # 否则用户改对了密码，30 分钟内自动重登仍被挡，横幅继续写
+                    # "账号或密码可能不对"。
+                    try:
+                        _relogin_clear(s["id"])
+                    except Exception:
+                        pass
+                    return {"ok": True}
+            return {"error": "站点不存在"}
 
     @staticmethod
-    def _wipe_session_files(site_id, session_name):
-        from core.site_runner import DATA_DIR as _DATA
-        if session_name:
-            p = os.path.join(_DATA, session_name)
-            if os.path.exists(p):
-                try:
+    def _wipe_session_files(site_id):
+        """删掉该站点的会话文件与课程缓存。
+
+        会话文件名走统一口径（session_path）：以前按 `s.get("session")` 拼，
+        配置里没写 session 时删的是 None/空路径，用户点「清除登录」什么也没删掉。
+        """
+        from core.site_runner import DATA_DIR as _DATA, get_site
+        try:
+            from adapters.auth import session_path
+            site = get_site(site_id)
+            if site:
+                p = session_path(_DATA, site)
+                if os.path.exists(p):
                     os.remove(p)
-                except Exception:
-                    pass
+        except Exception:
+            pass
         cache = os.path.join(_DATA, f"{site_id}_courses.json")
         if os.path.exists(cache):
             try:
@@ -898,38 +954,44 @@ class Api:
                 pass
 
     def apply_sites_changes(self, changes):
-        from core.site_runner import load_sites, save_sites, DATA_DIR as _DATA
-        sites = load_sites(include_disabled=True)
-        by_id = {s["id"]: s for s in sites}
-        to_delete = set()
+        from core.site_runner import load_sites, save_sites, config_transaction
+        with config_transaction():
+            sites = load_sites(include_disabled=True)
+            by_id = {s["id"]: s for s in sites}
+            to_delete = set()
 
-        def _wipe_session(sid):
-            s = by_id.get(sid)
-            if not s:
-                return
-            self._wipe_session_files(sid, s.get("session"))
+            def _wipe_session(sid):
+                self._wipe_session_files(sid)
 
-        for ch in changes:
-            sid = ch.get("id")
-            if sid not in by_id:
-                continue
-            if ch.get("clear_session"):
-                _wipe_session(sid)
-            if ch.get("deleted"):
-                to_delete.add(sid)
-                _wipe_session(sid)
+            for ch in changes:
+                sid = ch.get("id")
+                if sid not in by_id:
+                    continue
+                if ch.get("clear_session"):
+                    _wipe_session(sid)
+                if ch.get("deleted"):
+                    to_delete.add(sid)
+                    _wipe_session(sid)
 
-        for ch in changes:
-            sid = ch.get("id")
-            if sid in to_delete or sid not in by_id:
-                continue
-            by_id[sid]["enabled"] = bool(ch.get("enabled", True))
+            for ch in changes:
+                sid = ch.get("id")
+                if sid in to_delete or sid not in by_id:
+                    continue
+                by_id[sid]["enabled"] = bool(ch.get("enabled", True))
 
-        new_sites = [s for s in sites if s["id"] not in to_delete]
-        ok, err = save_sites(new_sites)
-        if not ok:
-            return {"error": f"写入 sites.yaml 失败：{err}"}
-        return {"ok": True}
+            new_sites = [s for s in sites if s["id"] not in to_delete]
+            ok, err = save_sites(new_sites)
+            if not ok:
+                return {"error": f"写入 sites.yaml 失败：{err}"}
+            # 被删掉/被禁用的站点，自动重登的冷却与失败原因也一并清掉，
+            # 否则同名站点重新加回来时会带着旧冷却。
+            for sid in list(to_delete):
+                try:
+                    from core.site_runner import _relogin_clear
+                    _relogin_clear(sid)
+                except Exception:
+                    pass
+            return {"ok": True}
 
     # ---------- 开机自启动 ----------
     def get_autostart(self):
@@ -1008,7 +1070,7 @@ def _startup_show_fallback():
 # 主函数
 # ============================================================
 def main():
-    global _main_window, _alert_window, _panel_window, _screen_w, _screen_h, _startup_mode
+    global _main_window, _alert_window, _panel_window, _screen_size, _startup_mode
 
     # 1) 先解析数据目录。必须在任何 data/ 读写之前。
     ok, err = _setup_runtime_paths()
@@ -1048,10 +1110,10 @@ def main():
     #     所以**创建那一刻就显示在屏幕中央**了。show_main_window() 里的
     #     restore→resize→move→show 全都在那之后 —— 顺序怎么调都没用，
     #     那一帧已经发生了。只有建窗时给坐标才能消掉。
-    _screen_w, _screen_h = _primary_screen_size(_screen_w, _screen_h)
-    _float_x = max(0, _screen_w - ALERT_W - ALERT_MARGIN)
+    _screen_size = _primary_screen_size(*_screen_size)
+    _float_x = max(0, _screen_size[0] - ALERT_W - ALERT_MARGIN)
     # 与 show_main_window() 共用同一套算法，避免"建窗放好了又被挪到别处"
-    _main_w, _main_h, _main_x, _main_y = _main_geometry(_screen_w, _screen_h)
+    _main_w, _main_h, _main_x, _main_y = _main_geometry(*_screen_size)
 
     try:
         # 静默档必须用 hidden=True，不能用 minimized=True：
@@ -1100,13 +1162,13 @@ def main():
         threading.Thread(target=_startup_show_fallback, daemon=True).start()
 
         def _after_start():
-            global _screen_w, _screen_h
+            global _screen_size
             try:
                 first = next(iter(webview.screens))
                 W, H = int(first.width), int(first.height)
             except Exception:
                 W, H = 1920, 1080
-            _screen_w, _screen_h = W, H
+            _screen_size = (W, H)
             time.sleep(0.3)
             layout_all()
 

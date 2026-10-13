@@ -1,7 +1,7 @@
-﻿import os
+import os
 import re
 from urllib.parse import urlparse
-from .base import Homework, LoginRequiredError
+from .base import Homework, LoginRequiredError, session_path
 
 
 # 匹配形如 "2026-10-09 23:59:00" 的日期
@@ -124,7 +124,7 @@ LOGIN = {
 
 def fetch_homeworks(site, base_dir):
     """静默抓取：加载会话 → 打开页面 → 抠数据"""
-    session = os.path.join(base_dir, site["session"])
+    session = session_path(base_dir, site)
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
@@ -132,22 +132,25 @@ def fetch_homeworks(site, base_dir):
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
-        page = ctx.new_page()
-        page.goto(site["url"], wait_until="domcontentloaded")
-        # 等到作业列表出现就继续（不等 networkidle）
-        got = wait_for_ready(
-            page, lambda pg: len(_extract(pg, site)) > 0,
-            timeout_ms=15000, what="清华 OJ 作业列表")
-        if not got:
-            page.wait_for_timeout(2000)
+        try:
+            page = ctx.new_page()
+            page.goto(site["url"], wait_until="domcontentloaded")
+            # 等到作业列表出现就继续（不等 networkidle）
+            got = wait_for_ready(
+                page, lambda pg: len(_extract(pg, site)) > 0,
+                timeout_ms=15000, what="清华 OJ 作业列表")
+            if not got:
+                page.wait_for_timeout(2000)
 
-        if not _is_logged_in(page, site):
-            ctx.close()
-            raise LoginRequiredError(site["id"], site["name"])
+            if not _is_logged_in(page, site):
+                raise LoginRequiredError(site["id"], site["name"])
 
-        items = _extract(page, site)
-        ctx.close()
-        return items
+            return _extract(page, site)
+        finally:
+            try:
+                ctx.close()
+            except Exception:
+                pass
 
 
 def login(site, base_dir, manual=True):

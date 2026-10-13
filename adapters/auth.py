@@ -8,10 +8,16 @@
     可选的 helper  例如 _get_courses(page)
 
 本模块据此提供：
-    silent_login(site, base_dir)   无头静默登录；失败返回 False，不抛异常
-    interactive_login(site, base_dir)  可见窗口登录，供人工扫码／过验证码
+    silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
+        无头（或屏幕外真实窗口）静默登录；返回 `(ok, reason)`，不抛异常。
+        reason 取值：
+          ok / session_valid / session_save_unusable / no_credentials / no_adapter_support /
+          mfa / bad_credentials / school_select_failed / no_login_form /
+          login_page_error / timeout / exception
+    interactive_login(site, base_dir, *, timeout_s=600, keep_alive=False, prefill=True)
+        可见窗口登录，供人工扫码／过验证码；返回布尔（keep_alive 时返回四元组）
 
-两者都会在成功后写入 data/<session>.json。
+两者都会在成功后写入 data/<session>.json。会话文件路径统一走 `session_path()`。
 """
 
 import os
@@ -115,10 +121,9 @@ def http_credentials(site):
 
 
 def session_path(base_dir, site):
-    name = site.get("session")
-    if not name:
-        name = f"{site['id']}_session.json"
-    return os.path.join(base_dir, name)
+    """会话文件路径（转发到 base.session_path，保证全仓一套口径）。"""
+    from .base import session_path as _base_session_path
+    return _base_session_path(base_dir, site)
 
 
 def login_url(site):
@@ -246,7 +251,10 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
     sess = session_path(base_dir, site)
     os.makedirs(base_dir, exist_ok=True)
 
-    deadline = time.time() + timeout_ms / 1000.0
+    # 判定窗口在**登录页真正打开之后**才开始计时（原实现在启动浏览器之前就定 deadline，
+    # 慢站上 page.goto 吃掉 45 秒后 _wait_for_login 一进去就只剩几秒，
+    # 用户拿到误导性的 timeout 并进 300 秒冷却，而真实原因只是"页面慢"）。
+    deadline = None
 
     # 屏幕外窗口：位置给到 -32000，Windows 会夹到约 -21845，仍在所有显示器之外
     launch_args = {}
@@ -312,9 +320,15 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
                     page.wait_for_timeout(cfg.get("after_pre_click2_wait", 5000))
 
             # 4) 选学校之类的选择器（数你最灵）
+            #    选校失败不能直接当成"密码错误"：以前丢弃返回值继续提交，
+            #    服务端回「用户名或密码错误」，前端就把用户引去改一个正确的密码，
+            #    还白搭 1800 秒冷却。这里只记录状态，等真正失败时再降级 reason。
+            school_failed = False
             school = site.get("school")
             if school and cfg.get("school_open"):
-                _select_school(page, cfg, school, _log)
+                if not _select_school(page, cfg, school, _log):
+                    school_failed = True
+                    _log(f"选校未成功（{school}），若随后登录失败将按「选校失败」上报")
 
             # 5) 填账号密码
             user_sel = _fill_first(page, cfg.get("username") or [], user)
@@ -371,8 +385,14 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
                 except Exception:
                     pass
 
-            # 8) 等待登录结果
+            # 8) 等待登录结果 —— 判定窗口从这一刻开始算（见上面的 deadline 说明）
+            deadline = time.time() + timeout_ms / 1000.0
             ok, reason = _wait_for_login(page, validate, site, deadline, cfg)
+            if not ok and reason == "bad_credentials" and school_failed:
+                # 选校没成功却被服务端回了凭据错误：真正坏掉的是选校。
+                # 降级 reason 可以同时避免 1800 秒冷却和"去改密码"的错误引导。
+                _log("登录失败原因是凭据错误，但本次选校未成功 → 按「选校失败」上报")
+                reason = "school_select_failed"
             if ok:
                 # 等会话稳定再存盘：刚跳转完成时 cookie 可能还没落定，
                 # 存早了会得到一个「当前页面能用、重新加载却无效」的会话文件。
@@ -574,12 +594,27 @@ def _wait_for_login(page, validate, site, deadline, cfg):
     注意：不能拿页面正文去匹配「验证码」这种泛化关键词——
     正常登录页本身就可能出现「验证码登录」之类的字样（U校园就是如此）。
     必须用「可见的二次验证元素 / 明确的二次验证句子」来判断。
+
+    判定顺序也有讲究：**二次验证优先于正文扫描**。
+    正文扫描用的是"页面里出现某句话"这种弱证据，而二次验证页面
+    （清华 SSO、校园 MFA）的正文里完全可能出现「登录失败」「无法登录」
+    这类帮助/提示文案；顺序反了就会把真 MFA 判成"密码错"，
+    冷却从 300 秒变 1800 秒，还把用户引去改一个正确的密码。
     """
+    # 元素扫描可以宽一点（错误类元素本身就限定了范围）
     error_markers = cfg.get("error_markers") or [
         # 用足够长的整句，避免把正常登录页上的「忘记密码」之类误判成失败
         "您的用户名或密码不正确", "用户名或密码不正确", "用户名或密码错误",
         "账号或密码不正确", "账号或密码错误", "密码不正确", "密码错误",
-        "账号不存在", "账户不存在", "请确认提供的账户", "无法登录", "登录失败",
+        "账号不存在", "账户不存在", "请确认提供的账户",
+    ]
+    # 正文扫描只认足够独特的长句：泛化短语（「无法登录」「登录失败」）
+    # 在正常页脚、帮助文案、MFA 说明里都可能出现，不能作为判据。
+    body_markers = cfg.get("body_error_markers") or [
+        "您的用户名或密码不正确", "用户名或密码不正确", "用户名或密码错误",
+        "账号或密码不正确", "账号或密码错误", "密码不正确", "密码错误",
+        "账号不存在", "账户不存在", "请确认提供的账户",
+        "账号已被锁定", "账户已被锁定", "密码输入次数过多",
     ]
 
     nav_checked = set()   # 已经为哪些 URL 做过「导航到目标页复核」
@@ -598,11 +633,7 @@ def _wait_for_login(page, validate, site, deadline, cfg):
             if _safe_validate(validate, page, site, navigate=True, cfg=cfg):
                 return True, "ok"
 
-        # 1) 明确的登录失败提示 → 立刻返回，不要干等
-        #    分两步：先看错误类元素，再看**正文**里的明确句子。
-        #    只扫元素是不够的：清华 SSO 报「您的用户名或密码不正确，请重试！」
-        #    时，那句话不在任何 error 类元素里（错误类元素只匹配到「忘记密码」
-        #    这个链接），结果会一路轮询到超时——实测白等 60 秒。
+        # 1) 明确的登录失败提示（错误类元素）→ 立刻返回，不要干等
         try:
             err = page.evaluate(
                 r"""() => {
@@ -619,18 +650,20 @@ def _wait_for_login(page, validate, site, deadline, cfg):
         if err and any(m in err for m in error_markers):
             return False, "bad_credentials"
 
-        # 1b) 正文里的明确失败句子（用足够长的固定句，避免误判）
+        # 2) 真正的二次验证界面（必须排在正文扫描之前）
+        if _looks_like_mfa(page, cfg):
+            return False, "mfa"
+
+        # 3) 正文里的明确失败长句
+        #    只扫元素是不够的：清华 SSO 报「您的用户名或密码不正确，请重试！」
+        #    时那句话不在任何 error 类元素里，结果会一路轮询到超时（实测白等 60 秒）。
         try:
             body = page.evaluate(
                 "() => (document.body ? document.body.innerText : '').slice(0, 2000)")
         except Exception:
             body = ""
-        if body and any(m in body for m in error_markers):
+        if body and any(m in body for m in body_markers):
             return False, "bad_credentials"
-
-        # 2) 真正的二次验证界面
-        if _looks_like_mfa(page, cfg):
-            return False, "mfa"
 
         try:
             page.wait_for_timeout(1200)
@@ -670,85 +703,111 @@ def interactive_login(site, base_dir, *, timeout_s=600, keep_alive=False, prefil
     url = login_url(site)
 
     p = sync_playwright().start()
-    browser = p.chromium.launch(headless=False, channel="msedge")
-    ctx = browser.new_context(**_context_args(site))
-    page = ctx.new_page()
+    browser = None
+    handed_off = False
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    except Exception:
-        pass
-
-    # 先把登录入口点开、账号密码填好，用户只需要过验证码/扫码
-    if prefill and user and pwd:
+        browser = p.chromium.launch(headless=False, channel="msedge")
+        ctx = browser.new_context(**_context_args(site))
+        page = ctx.new_page()
         try:
-            page.wait_for_timeout(2500)
-            school = site.get("school")
-            if school and cfg.get("school_open"):
-                _select_school(page, cfg, school, lambda m: print(f"[login] {m}"))
-            for key, wait_key, default_wait in (("pre_click", "after_pre_click_wait", 4000),
-                                                ("pre_click2", "after_pre_click2_wait", 5000)):
-                if cfg.get(key):
-                    if _click_first(page, cfg[key], timeout=8000):
-                        page.wait_for_timeout(cfg.get(wait_key, default_wait))
-            if not _fill_first(page, cfg.get("username") or [], user) and cfg.get("fallback_url"):
-                page.goto(cfg["fallback_url"], wait_until="domcontentloaded", timeout=45000)
-                page.wait_for_timeout(cfg.get("after_fallback_wait", 4000))
-            _fill_first(page, cfg.get("username") or [], user)
-            _fill_first(page, cfg.get("password") or [], pwd)
-            for sel in list(cfg.get("remember") or []) + list(cfg.get("agree") or []):
-                try:
-                    loc = page.locator(sel).first
-                    if loc.count() and not loc.is_checked():
-                        loc.check(timeout=4000)
-                except Exception:
-                    pass
-            print(f"[login] {site.get('name', site.get('id'))}: 账号密码已自动填入，"
-                  f"请完成验证码/二次认证后点「登录」")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except Exception as e:
-            print(f"[login] 自动预填失败（请手动登录）：{type(e).__name__}: {str(e)[:120]}")
+            # 打不开也把窗口留给用户：至少能看到浏览器、手动输地址
+            print(f"[login] 打开登录页失败（可手动输地址）：{type(e).__name__}: {str(e)[:120]}")
 
-    deadline = time.time() + timeout_s
-    ok = False
-    nav_checked = set()
-    while time.time() < deadline:
-        if _safe_validate(validate, page, site):
-            ok = True
-            break
-        # 用户可能只登录到了首页，而目标页在子路径（清华 OJ），复核一次
-        try:
-            cur = page.url.split("#")[0]
-        except Exception:
-            cur = ""
-        if cur and cur not in nav_checked:
-            nav_checked.add(cur)
-            if _safe_validate(validate, page, site, navigate=True, cfg=cfg):
+        # 先把登录入口点开、账号密码填好，用户只需要过验证码/扫码。
+        # 顺序与 silent_login 对齐：先点入口 → 再选学校 → 最后填表。
+        # （人工窗口里原先把选校放在点入口之前，需要"先点入口再选学校"的站点会点空。）
+        if prefill and user and pwd:
+            try:
+                page.wait_for_timeout(2500)
+                for key, wait_key, default_wait in (("pre_click", "after_pre_click_wait", 4000),
+                                                    ("pre_click2", "after_pre_click2_wait", 5000)):
+                    if cfg.get(key):
+                        if _click_first(page, cfg[key], timeout=8000):
+                            page.wait_for_timeout(cfg.get(wait_key, default_wait))
+                school = site.get("school")
+                if school and cfg.get("school_open"):
+                    _select_school(page, cfg, school, lambda m: print(f"[login] {m}"))
+                # 只在"第一次没填上并且走了兜底页"之后才重填一次；
+                # 原实现无条件又填了一遍用户名，是纯重复动作。
+                filled_user = _fill_first(page, cfg.get("username") or [], user)
+                if not filled_user and cfg.get("fallback_url"):
+                    page.goto(cfg["fallback_url"], wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(cfg.get("after_fallback_wait", 4000))
+                    _fill_first(page, cfg.get("username") or [], user)
+                _fill_first(page, cfg.get("password") or [], pwd)
+                for sel in list(cfg.get("remember") or []) + list(cfg.get("agree") or []):
+                    try:
+                        loc = page.locator(sel).first
+                        if loc.count() and not loc.is_checked():
+                            loc.check(timeout=4000)
+                    except Exception:
+                        pass
+                print(f"[login] {site.get('name', site.get('id'))}: 账号密码已自动填入，"
+                      f"请完成验证码/二次认证后点「登录」")
+            except Exception as e:
+                print(f"[login] 自动预填失败（请手动登录）：{type(e).__name__}: {str(e)[:120]}")
+
+        deadline = time.time() + timeout_s
+        ok = False
+        nav_checked = set()
+        while time.time() < deadline:
+            if _safe_validate(validate, page, site):
                 ok = True
                 break
-        try:
-            page.wait_for_timeout(2000)
-        except Exception:
-            break
+            # 用户可能只登录到了首页，而目标页在子路径（清华 OJ），复核一次
+            try:
+                cur = page.url.split("#")[0]
+            except Exception:
+                cur = ""
+            if cur and cur not in nav_checked:
+                nav_checked.add(cur)
+                if _safe_validate(validate, page, site, navigate=True, cfg=cfg):
+                    ok = True
+                    break
+            try:
+                page.wait_for_timeout(2000)
+            except Exception:
+                break
 
-    if ok:
-        try:
-            ctx.storage_state(path=sess)
-        except Exception:
-            pass
+        if ok:
+            # 存盘失败必须让"成功"作废：磁盘满/目录只读时以前仍然返回成功，
+            # 用户看到横幅消失，下次刷新立刻又"需要登录"，
+            # 形成"登录成功但抓不到作业"的循环。
+            saved = False
+            try:
+                ctx.storage_state(path=sess)
+                saved = os.path.exists(sess) and os.path.getsize(sess) > 0
+            except Exception as e:
+                print(f"[login] 会话存盘失败：{type(e).__name__}: {e}")
+            if not saved:
+                print(f"[login] {site.get('name', site.get('id'))}: 会话文件不可用（{sess}），"
+                      f"本次登录不算成功")
+                ok = False
 
-    if keep_alive:
-        # 调用方负责关闭；把 playwright 句柄挂在 context 上避免被回收
-        try:
-            ctx._dsh_playwright = p
-        except Exception:
-            pass
-        return ok, browser, ctx, page
-
-    try:
-        browser.close()
-    except Exception:
-        pass
-    try:
-        p.stop()
-    except Exception:
-        pass
-    return ok
+        if keep_alive:
+            # 调用方负责关闭；把 playwright 句柄挂在 context 上避免被回收
+            try:
+                ctx._dsh_playwright = p
+            except Exception:
+                pass
+            handed_off = True
+            return ok, browser, ctx, page
+        return ok
+    except Exception as e:
+        print(f"[login] 人工登录未预期异常：{type(e).__name__}: {str(e)[:160]}")
+        return (False, None, None, None) if keep_alive else False
+    finally:
+        # 异常路径也必须释放浏览器与 driver：以前只有正常尾部才 close/stop，
+        # new_context / new_page 抛异常时会一直留着浏览器和 msedge 进程。
+        if not handed_off:
+            if browser is not None:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            try:
+                p.stop()
+            except Exception:
+                pass

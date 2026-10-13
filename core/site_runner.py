@@ -3,6 +3,7 @@
 # 职责：读 sites.yaml，遍历每个站点，调用对应的抓取器
 # ============================================================
 
+import collections
 import json
 import os
 import socket
@@ -68,6 +69,9 @@ def wait_for_network(timeout=120, interval=2):
 
     开机自启动时，程序可能比系统联网更快，所以先在这里等一下，
     避免一启动就抓取，全部报连接错误。
+
+    注意：这个等待只在**进程首轮抓取**时执行一次（由 fetch_all 控制），
+    手动点「刷新任务」不会再等 120 秒 —— 文档承诺的也只是"启动时"。
     """
     deadline = time.time() + timeout
     while True:
@@ -82,11 +86,16 @@ def wait_for_network(timeout=120, interval=2):
         time.sleep(interval)
 
 
+# 首轮网络等待只做一次
+_network_waited = False
+_network_lock = threading.Lock()
+
+
 # ============================================================
 # 抓取进度播报
 #
 # 这是给界面看的「正在发生什么」，不是日志。只允许 3 类行：
-#   1. 检查网络（含结果）
+#   1. 检查网络（等待前先播一行，结果出来再播一行）
 #   2. [站点名] 开始抓取
 #   3. [站点名] 结果
 # 适配器内部的调试输出（[silent-login]、[relogin]、英文错误码、
@@ -101,21 +110,54 @@ _progress_count = 0
 _progress_last = 0.0
 
 PROGRESS_MIN_INTERVAL = 0.15   # 相邻两行最小间隔（秒）
-PROGRESS_BURST = 3             # 区域为空时前 N 行立即输出，不拖首屏
+# 开场慢放：表按行号索引（第 0 行 = 本轮第 1 行），0.0 是显式的
+# 「第 1 行不等待、立即出」；第 2、3 行分别等 0.28 / 0.22 秒，之后回到
+# PROGRESS_MIN_INTERVAL（间隔逐行收敛，不是突然切换）。
+# 之前的做法是「区域为空时前 3 行立即输出」（PROGRESS_BURST = 3），
+# 但那三行是同一帧里一起冒出来的，看不出先后 —— 像一次闪烁，而不是「一条条出来」。
+#
+# 改这个之前先读代价：开场的行是在 worker 真正联网之前播报的
+# （_fetch_one_site_locked 开头），而这里的 sleep 在 _progress_lock 内，
+# 所以慢放会顺带把前几个并发站点各推迟一次。默认并发 3、整轮抓取 8 秒量级，
+# 慢放总预算压在 PROGRESS_OPENING_BUDGET 以内（0.5 秒），可以接受。
+# 想要更多慢放又不拖抓取，就得把播报挪到独立线程（worker 只入队）。
+PROGRESS_OPENING_DELAYS = (0.0, 0.28, 0.22)
+PROGRESS_OPENING_BUDGET = 0.5  # 开场几行的累计等待上限（秒），超了就是拖抓取
+_progress_opening_spent = 0.0  # 本轮已花在"开场慢放"上的总等待
 
 
 def set_progress_sink(sink):
     """注册进度接收端；传 None 取消。返回值不参与流程控制。"""
-    global _progress_sink, _progress_count, _progress_last
+    global _progress_sink, _progress_count, _progress_last, _progress_opening_spent
     with _progress_lock:
         _progress_sink = sink
         _progress_count = 0
         _progress_last = 0.0
+        _progress_opening_spent = 0.0
+
+
+def _progress_interval(count):
+    """第 count 行（从 0 数）之前要等多久；0 表示不等待。
+
+    表是按行号索引的，所以 PROGRESS_OPENING_DELAYS[0] 是「第 1 行等多久」
+    （写 0.0：立即出，不能拖首屏）；表走完就落回 PROGRESS_MIN_INTERVAL。
+    注意不要靠 _progress_last 的 0.0 初值来让第 1 行免费 —— 那是隐式行为，
+    表里显式写 0.0 才经得起以后改时钟基准。
+
+    PROGRESS_OPENING_BUDGET 是**硬上限**：累计慢放时间一到就不再等。
+    以前这个常量只是个承诺、没有任何代码执行它 —— 那样加长慢放表就会
+    悄悄变成"拖慢抓取"，而注释还写着预算受控。
+    """
+    if _progress_opening_spent >= PROGRESS_OPENING_BUDGET:
+        return PROGRESS_MIN_INTERVAL
+    if count < len(PROGRESS_OPENING_DELAYS):
+        return PROGRESS_OPENING_DELAYS[count]
+    return PROGRESS_MIN_INTERVAL
 
 
 def _emit_progress(line):
     """播报一行。任何异常都被吞掉：进度是辅助信息，不能拖垮抓取。"""
-    global _progress_count, _progress_last
+    global _progress_count, _progress_last, _progress_opening_spent
     if not line:
         return
     with _progress_lock:
@@ -124,10 +166,14 @@ def _emit_progress(line):
             return
         count = _progress_count
         _progress_count += 1
-        if count >= PROGRESS_BURST:
+        interval = _progress_interval(count)
+        if interval > 0:
             elapsed = time.time() - _progress_last
-            if elapsed < PROGRESS_MIN_INTERVAL:
-                time.sleep(PROGRESS_MIN_INTERVAL - elapsed)
+            if elapsed < interval:
+                wait = interval - elapsed
+                time.sleep(wait)
+                if count < len(PROGRESS_OPENING_DELAYS):
+                    _progress_opening_spent += wait
         _progress_last = time.time()
     try:
         sink(line)
@@ -157,6 +203,57 @@ def _progress_result_line(site, homeworks, errors, need_login):
 # 读方会读到半截 YAML。会话文件同理。
 # ============================================================
 _sites_lock = threading.RLock()
+
+# 跨「读—改—写」的事务锁。
+# 为什么 _sites_lock 不够：它只锁住单次读或单次写，而
+# `save_site_credentials` / `apply_sites_changes` / `save_startup_mode`
+# 都是「load_sites() → 改内存 → save_sites()」两段式。pywebview 给每次
+# js_api 调用起一个独立线程（webview/util.py 里是 Thread(target=_call)），
+# 两次调用真的会重叠，后完成者用旧快照整体覆盖，前一次改动无声消失。
+# 锁序固定为 _config_rw_lock → _sites_lock，绝不反向持有。
+_config_rw_lock = threading.RLock()
+
+
+class ConfigTransaction:
+    """把「读—改—写」整段串行化的上下文管理器。
+
+    用法：
+        with config_transaction():
+            sites = load_sites(include_disabled=True)
+            ...
+            save_sites(sites)
+    嵌套安全（RLock）。
+    """
+
+    def __enter__(self):
+        _config_rw_lock.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        _config_rw_lock.release()
+        return False
+
+
+def config_transaction():
+    return ConfigTransaction()
+
+
+# 最近一次 sites.yaml 读取失败的原因（给人看的中文），成功读取时为 None。
+_last_config_error = None
+
+# 最近一次"明文升级为密文"失败的原因；成功或无需升级时为 None。
+_last_upgrade_error = None
+
+
+def upgrade_error():
+    """最近一次明文加密升级失败的原因（供界面提示）。"""
+    return _last_upgrade_error
+
+
+# 最近一次"某个字段加密失败"的原因（DPAPI 不可用/令牌异常时会保留明文）
+def _note_upgrade_error(msg):
+    global _last_upgrade_error
+    _last_upgrade_error = msg
 
 
 def atomic_write_text(path, text, backup=False):
@@ -194,30 +291,56 @@ def atomic_write_text(path, text, backup=False):
 def load_sites(include_disabled=False):
     """读取 sites.yaml，返回站点列表。
     include_disabled=False 时过滤掉 enabled=False 的站点。
-    文件不存在返回空列表。"""
+    文件不存在返回空列表。
+
+    「文件不存在」与「文件读不出来」都会返回空列表（调用方拿不到差异），
+    因此读失败时把原因记到 _last_config_error，由 fetch_all 转成界面横幅 ——
+    否则用户看到的是"所有任务都已完成"这种和"配置坏了"无法区分的状态。
+    """
+    global _last_config_error
     with _sites_lock:
         if not os.path.exists(SITES_FILE):
+            _last_config_error = None
             return []
         try:
             with open(SITES_FILE, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
-        except Exception:
+            _last_config_error = None
+        except Exception as e:
             # 文件损坏时退回备份，尽量不让用户「站点全没了」
             bak = SITES_FILE + ".bak"
+            reason = f"{type(e).__name__}: {e}"
             if os.path.exists(bak):
                 try:
                     with open(bak, encoding="utf-8") as f:
                         data = yaml.safe_load(f) or {}
                     print(f"[config] sites.yaml 损坏，已回退到备份 {bak}")
-                except Exception:
+                    _last_config_error = None
+                except Exception as e2:
+                    _last_config_error = (
+                        f"{SITES_FILE} 与备份都无法解析（{reason}；备份："
+                        f"{type(e2).__name__}: {e2}）"
+                    )
                     return []
             else:
+                _last_config_error = f"{SITES_FILE} 无法解析（{reason}），且没有可用的备份"
                 return []
     sites = data.get("sites", [])
+    if not isinstance(sites, list):
+        with _sites_lock:
+            _last_config_error = f"{SITES_FILE} 的 sites: 不是一个列表（实际是 {type(sites).__name__}）"
+        return []
+    sites = [s for s in sites if isinstance(s, dict) and s.get("id")]
     if include_disabled:
         return sites
     # 只保留启用的（默认 enabled=True）
     return [s for s in sites if s.get("enabled", True)]
+
+
+def config_error():
+    """最近一次配置读取失败的原因；没有失败时返回 None。"""
+    with _sites_lock:
+        return _last_config_error
 
 
 def save_sites(sites):
@@ -225,22 +348,40 @@ def save_sites(sites):
     return _write_config_sites(sites)
 
 
-def _read_config():
-    """读整个 sites.yaml。返回 dict（失败或不存在返回空 dict）。"""
+class ConfigUnreadable(Exception):
+    """sites.yaml 存在但读不出来，且备份也不可用。"""
+
+
+def _read_config(strict=False):
+    """读整个 sites.yaml，返回 dict。
+
+    文件**不存在**时返回 `{}`（首次启动的正常情况）。
+    文件存在但读不出来时：
+      - `strict=True` → 抛 `ConfigUnreadable`。**写路径必须用这个**：
+        拿一个空 dict 去写回，会把 `sites:` 数组连同里面所有 DPAPI 密文
+        凭据一次性抹掉，而界面仍显示"保存成功"。
+      - `strict=False` → 返回 `{}`（只读路径用，例如读启动行为，退回默认值即可）。
+    """
     with _sites_lock:
         if not os.path.exists(SITES_FILE):
             return {}
         try:
             with open(SITES_FILE, encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except Exception:
+                data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
             bak = SITES_FILE + ".bak"
             if os.path.exists(bak):
                 try:
                     with open(bak, encoding="utf-8") as f:
-                        return yaml.safe_load(f) or {}
+                        data = yaml.safe_load(f)
+                    if isinstance(data, dict):
+                        print(f"[config] sites.yaml 读取失败，已回退到备份 {bak}")
+                        return data
                 except Exception:
-                    return {}
+                    pass
+            if strict:
+                raise ConfigUnreadable(f"{SITES_FILE} 读取失败：{type(e).__name__}: {e}")
             return {}
 
 
@@ -265,8 +406,13 @@ def _write_config_sites(sites):
     这点很重要：`startup_mode` 这类设置就存在同一个文件的顶层。
     早期实现直接写 `{"sites": sites}`，会把它们整块抹掉 ——
     用户点一次「应用」，启动行为设置就悄悄回到默认值。
+
+    读失败时**拒绝写入**并返回错误（见 `_read_config` 的说明）。
     """
-    config = _read_config()
+    try:
+        config = _read_config(strict=True)
+    except ConfigUnreadable as e:
+        return False, f"拒绝写入（读不到现有配置，写了会丢数据）：{e}"
     config["sites"] = sites
     return _write_config(config)
 
@@ -288,7 +434,10 @@ def save_startup_mode(mode):
     """写回启动行为。返回 (ok, 错误信息)。"""
     if mode not in ("silent", "visible"):
         return False, f"未知的启动行为：{mode}"
-    config = _read_config()
+    try:
+        config = _read_config(strict=True)
+    except ConfigUnreadable as e:
+        return False, f"拒绝写入（读不到现有配置，写了会丢数据）：{e}"
     config[STARTUP_MODE_KEY] = mode
     return _write_config(config)
 
@@ -314,7 +463,10 @@ def encrypt_site_credentials(site):
             site[key] = encrypt(val)
             changed += 1
         except Exception as e:
-            print(f"[secrets] {site.get('id')}.{key} 加密失败：{type(e).__name__}: {e}")
+            # 加密失败时这个字段会随整文件被写回磁盘 —— 也就是明文留在磁盘上。
+            # 必须记下来让界面能提示，不能只 print（窗口化 exe 下 print 不可见）。
+            _note_upgrade_error(f"{site.get('id')}.{key} 加密失败：{type(e).__name__}: {e}（该字段仍是明文）")
+            print(f"[secrets] {_last_upgrade_error}")
     return changed
 
 
@@ -345,12 +497,17 @@ def upgrade_plaintext_credentials():
         total += encrypt_site_credentials(s)
 
     if total:
-        try:
-            save_sites(sites)
-            print(f"[secrets] 已把 {total} 个明文账号/密码升级为加密存储")
-        except Exception as e:
-            print(f"[secrets] 写回 sites.yaml 失败：{type(e).__name__}: {e}")
+        # save_sites 只返回 (ok, err)，**从不抛异常** —— 以前这里用 try/except
+        # 接住"写盘失败"，结果是 except 永远不会触发，写盘失败也照样打印
+        # "已加密存储"，实际磁盘上还是明文。必须显式判返回值。
+        global _last_upgrade_error
+        ok, err = save_sites(sites)
+        if not ok:
+            _last_upgrade_error = f"写回 sites.yaml 失败：{err}（明文可能仍在磁盘上）"
+            print(f"[secrets] {_last_upgrade_error}")
             return 0
+        _last_upgrade_error = None
+        print(f"[secrets] 已把 {total} 个明文账号/密码升级为加密存储")
     return total
 
 
@@ -372,21 +529,40 @@ def fetch_all():
     会话过期时：如果 sites.yaml 里填了账号密码，先尝试**后台静默重登**；
     只有静默登录失败（例如清华 SSO 要求二次验证）才把站点报告给前端。
     """
-    # 先等网络就绪（开机自启动时可能比系统联网更快）
-    if not wait_for_network(timeout=120):
-        _emit_progress("检查网络… 失败")
-        return [], [{
-            "site_name": "网络",
-            "message": "等待网络连接超时（120 秒），请检查网络后点「刷新任务」重试",
-        }], []
-
-    _emit_progress("检查网络… 已连接")
+    # 先等网络就绪（开机自启动时可能比系统联网更快）。
+    # 只在**本轮进程的第一次**抓取时等：文档承诺的是"启动时最多等待网络
+    # 120 秒"，而 fetch_all 每次刷新都会被调用；断网时点「刷新任务」也白等
+    # 120 秒、还被 _fetch_lock 串行化，用户会以为刷新按钮卡死。
+    global _network_waited
+    with _network_lock:
+        need_wait = not _network_waited
+        _network_waited = True
+    if need_wait:
+        # 等待期间必须先播一行，否则进度区会空白最长 120 秒（注释却宣称含这一行）
+        _emit_progress("检查网络…")
+        if not wait_for_network(timeout=120):
+            _emit_progress("检查网络… 失败")
+            return [], [{
+                "site_name": "网络",
+                "message": "等待网络连接超时（120 秒），请检查网络后点「刷新任务」重试",
+            }], []
+        _emit_progress("检查网络… 已连接")
     # 各站点并行抓取：每个站点用独立 context，互不共享状态，因此可以同时跑。
     # 实测（本机 6 个站点）：并发 1 → 23.1s，并发 2 → 9.8s，
     # 并发 3 → 8.1s，并发 4/6 → 8.7~8.8s（不再变快，瓶颈是最慢的那个站）。
     # 取 3 而不是更高：冷启动时多个站点会同时发起登录，
     # 对清华 SSO 这类服务，3 个并发比 4 个更稳妥，而代价不到 1 秒。
     sites = load_sites()
+    cfg_err = config_error()
+    if cfg_err:
+        # 不能静默返回空：界面会把"配置坏了"显示成"所有任务都已完成，太棒了！"
+        return [], [{
+            "site_name": "配置",
+            "message": (
+                f"{cfg_err}。本次没有可抓取的站点。"
+                "请修好该文件，或先把它改名/删除，程序会按 sites.yaml.template 重新生成一份。"
+            ),
+        }], []
     try:
         workers = int(os.environ.get("HOMEWORK_BOT_WORKERS", "3"))
     except Exception:
@@ -413,7 +589,6 @@ def fetch_all():
             need_login.extend(nl)
         return homeworks, errors, need_login
 
-    from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=workers,
                             thread_name_prefix="fetch") as pool:
         futures = {pool.submit(_fetch_one_site, s): s for s in sites}
@@ -532,6 +707,10 @@ def _fetch_one_site_locked(site):
         # 会话文件损坏时不要把错误当终局：删掉坏文件，走重登分支自愈
         if _session_is_broken(site):
             _discard_session(site)
+            # 自愈不能以"丢失原因"为代价：选择器失效、接口 500、Playwright 崩
+            # 都会走到这里，如果不留痕，用户只看到"需要登录"，线上排障零线索。
+            print(f"[fetch] {_site_label(site)}: 会话损坏，吞掉异常 "
+                  f"{type(e).__name__}: {e}（已删除会话文件并转入重登）")
         else:
             errors.append({
                 "site_name": site.get("name", site.get("id")),
@@ -583,6 +762,37 @@ _last_failure = {}
 _last_failure_lock = threading.Lock()
 
 
+# ============================================================
+# 静默登录诊断（窗口化 exe 下 print 会被丢弃）
+#
+# 冻结包是 console=False，`sys.stdout` 为 None，silent_login 的
+# `[silent-login]` 诊断一个字都留不下来 —— 用户报"登录失败"时无从查起。
+# 这里用**有界内存环形缓冲**保留最近若干行，失败时把摘要附在
+# `need_login[].detail` 上送给界面。
+#
+# 刻意不写日志文件：本仓库历史上有过一次"读写同一日志文件导致自反馈、
+# 文件涨到 194GB"的事故，当时的结论就是"不落盘日志"。
+# ============================================================
+_DIAG_MAX = 40
+_diag_lines = collections.deque(maxlen=_DIAG_MAX)
+_diag_lock = threading.Lock()
+
+
+def _diag(msg):
+    """记录一行诊断：既打印（源码模式可见），也留在环形缓冲里（冻结包可见）。"""
+    text = str(msg)
+    with _diag_lock:
+        _diag_lines.append(text)
+    print(text)
+
+
+def diagnostics(tail=6):
+    """最近若干行诊断，给界面显示用。"""
+    with _diag_lock:
+        items = list(_diag_lines)
+    return items[-tail:] if tail else items
+
+
 def _remember_failure(site_id, reason):
     with _last_failure_lock:
         _last_failure[site_id] = reason
@@ -617,6 +827,26 @@ def _relogin_clear(site_id):
         _last_failure.pop(site_id, None)
 
 
+def supports_silent_login(site_type):
+    """该平台是否支持「填账号密码 → 后台静默登录」。
+
+    能力位定义在适配器模块上（`SUPPORTS_SILENT_LOGIN = False`，目前只有雨课堂）。
+    做成单一出处，是因为这个事实原先被硬编码在三处：设置面板的按钮
+    （`controller.list_sites`）、需要登录条目的话术（`_need_login_entry`）、
+    后台重登调度（`_auto_relogin_locked`）——三处只要有一处漏改，
+    用户就会看到一个"承诺能自动登录、但永远失败"的按钮，或者白等两次必然失败的登录。
+    """
+    try:
+        from adapters import REGISTRY
+        adapter = REGISTRY.get(site_type)
+        if adapter is None:
+            return False
+        return bool(getattr(adapter, "SUPPORTS_SILENT_LOGIN", True))
+    except Exception:
+        # 拿不到适配器时按"支持"处理，不改变既有行为
+        return True
+
+
 def auto_relogin_site(site):
     """尝试后台重登，分三层，都不需要用户看见任何窗口：
 
@@ -640,6 +870,14 @@ def _auto_relogin_locked(site):
     if not has_credentials(site):
         return False
 
+    # 平台本身就没有「账密自动登录」这条路（雨课堂只能扫码）：直接返回，
+    # 不要白跑两次 headless 尝试（各 30~120 秒），否则用户点了「刷新任务」
+    # 会先卡上几分钟，而横幅文案明明写着"无法自动登录"。
+    if not supports_silent_login(site.get("type")):
+        print(f"[relogin] {site.get('name', site.get('id'))}: 该平台不支持静默登录，跳过自动重登")
+        _remember_failure(site.get("id"), "no_adapter_support")
+        return False
+
     sid = site.get("id")
     name = site.get("name", sid)
     if _relogin_blocked(sid):
@@ -660,14 +898,16 @@ def _auto_relogin_locked(site):
 
     reason = "mfa"
     ok = False
+    headless_tried = False
 
     # ---- 第 1 层：无头 ----
     if skip_headless:
         print(f"[relogin] {name}: 该站点无头必定被要求二次验证，直接改用屏幕外窗口…")
     else:
+        headless_tried = True
         print(f"[relogin] {name}: 会话失效，尝试后台静默重登…")
         try:
-            ok, reason = silent_login(site, DATA_DIR)
+            ok, reason = silent_login(site, DATA_DIR, log=_diag)
         except Exception as e:
             print(f"[relogin] {name}: 无头登录异常 {type(e).__name__}: {e}")
             ok, reason = False, "exception"
@@ -680,7 +920,7 @@ def _auto_relogin_locked(site):
     # ---- 第 2 层：屏幕外真实窗口 ----
     print(f"[relogin] {name}: 改用屏幕外窗口重试…")
     try:
-        ok2, reason2 = silent_login(site, DATA_DIR, offscreen=True)
+        ok2, reason2 = silent_login(site, DATA_DIR, offscreen=True, log=_diag)
     except Exception as e:
         print(f"[relogin] {name}: 屏幕外登录异常 {type(e).__name__}: {e}")
         ok2, reason2 = False, "exception"
@@ -688,12 +928,55 @@ def _auto_relogin_locked(site):
         _relogin_clear(sid)
         print(f"[relogin] {name}: 成功（屏幕外窗口）")
         return True
-    reason = reason2
+
+    # 不能让弱 reason 覆盖强的：
+    # 无头层已经明确得到 bad_credentials（密码真错），而屏幕外层因为慢/白屏
+    # 给出 timeout 时，写回 timeout 会把冷却从 1800 秒缩到 300 秒、话术退化成
+    # "去确认验证码" —— 于是用户每 5 分钟再撞一次 SSO，而且被引向错误的动作。
+    # 只有无头层真的跑过才谈"保留更强 reason"：skip_headless 站点上的
+    # 初始值 "mfa" 只是占位，不是观测结果。
+    reason = _stronger_reason(reason, reason2) if headless_tried else reason2
 
     _relogin_mark_failed(sid, reason)
     _remember_failure(sid, reason)
     print(f"[relogin] {name}: 失败({reason})，需要人工处理")
     return False
+
+
+# reason 的"强度"：越大越能说明真实原因，失败落库时优先保留
+_REASON_STRENGTH = {
+    "bad_credentials": 6,
+    "session_save_unusable": 5,
+    "no_adapter_support": 4,
+    "no_credentials": 4,
+    "login_page_error": 4,
+    "school_select_failed": 4,
+    "no_login_form": 3,
+    "mfa": 3,
+    "timeout": 2,
+    "exception": 1,
+}
+
+
+def _stronger_reason(a, b):
+    """两个失败原因里取更能说明问题的那一个。"""
+    return a if _REASON_STRENGTH.get(a, 0) >= _REASON_STRENGTH.get(b, 0) else b
+
+
+# 后端 reason → 前端话术键。前端 LOGIN_HINTS 按这里的取值取话术。
+_REASON_TO_FRONTEND = {
+    "bad_credentials": "bad_credentials",
+    "session_save_unusable": "session_unstable",
+    "mfa": "mfa",
+    "timeout": "timeout",
+    "exception": "exception",
+    "login_page_error": "login_page_error",
+    "no_login_form": "login_page_error",
+    "no_adapter_support": "no_adapter_support",
+    "no_credentials": "no_credentials",
+    # 选校没成功被服务端回了"凭据错误"：真正要修的是选校，不能引导用户去改密码
+    "school_select_failed": "manual_required",
+}
 
 
 def _need_login_entry(site):
@@ -704,51 +987,99 @@ def _need_login_entry(site):
     except Exception:
         has_cred = False
 
-    # 顺序有讲究：雨课堂只支持扫码，不管有没有填账号密码都是扫码，
+    detail = None
+    # 顺序有讲究：只能扫码的平台（雨课堂）不管有没有填账号密码都是扫码，
     # 所以要放在最前面判断（否则填了账密时会给出误导性的「自动重登」话术）。
-    if site.get("type") == "yuketang":
-        reason = "qr_code"
+    if not supports_silent_login(site.get("type")):
+        reason = "qr_code" if site.get("type") == "yuketang" else "no_adapter_support"
     elif not has_cred:
         reason = "no_credentials"
     else:
         # 有账密但自动登录失败：用真实失败原因，给前端更准确的话术。
-        # 例如密码错了要说「账号密码可能不对」，而不是让用户去点验证码。
-        last = _last_failure_reason(site.get("id"))
-        if last == "bad_credentials":
-            reason = "bad_credentials"
-        elif last == "session_save_unusable":
-            reason = "session_unstable"
-        else:
-            reason = "manual_required"
+        # 例如密码错了要说「账号密码可能不对」，而不是让用户去点验证码；
+        # 基础设施故障（Playwright 崩、缺 msedge）也不能被说成"去确认验证码"。
+        last = _last_failure_reason(site.get("id")) or ""
+        reason = _REASON_TO_FRONTEND.get(last, "manual_required")
+        if reason in ("exception", "login_page_error"):
+            # 这类失败用户自己修不了，必须给可排查的线索（冻结包里 print 不可见）
+            lines = diagnostics(tail=4)
+            if lines:
+                detail = " / ".join(lines)
 
-    return {
+    entry = {
         "site_id": site["id"],
         "site_name": site["name"],
         "reason": reason,
         "has_credentials": has_cred,
     }
+    if detail:
+        entry["detail"] = detail
+    return entry
 
 
 def login_site(site_id):
-    """触发某站点的登录流程，返回 True/False。
+    """触发某站点的登录流程，返回 `(ok, reason)`。
 
     先试一次无头静默登录；不行再弹可见窗口让用户完成
     （验证码、二次认证、扫码等都需要人工）。
     全程持有该站点的锁，避免与后台刷新同时操作同一站点。
+
+    为什么返回 reason：以前只返回布尔，`Api.login()` 就只回 `{"ok": ok}`，
+    前端明明备好了五套失败话术却永远用不上，用户只能看到"登录未完成，
+    点击重试"，分不清"密码错"和"还差一次验证码"。
     """
     site = get_site(site_id)
     if not site:
-        return False
+        return False, "no_such_site"
     adapter = REGISTRY.get(site.get("type"))
     if not adapter:
-        return False
+        _remember_failure(site_id, "no_adapter_support")
+        return False, "no_adapter_support"
 
     with _site_lock(site_id):
         # 1) 先试静默
         if auto_relogin_site(site):
-            return True
+            return True, "ok"
+
+        reason = _last_failure_reason(site_id) or "manual_required"
 
         # 2) 退回可见窗口，人工完成（会尽量先把账号密码填好，用户只需过验证码）
         #    注意：这里故意绕过冷却——冷却只针对**自动**重登，
         #    用户手动点「登录」本来就应该立刻执行。
-        return adapter.login(site, DATA_DIR)
+        try:
+            ok = adapter.login(site, DATA_DIR)
+        except Exception as e:
+            print(f"[login] {site.get('name', site_id)}: 人工登录异常 {type(e).__name__}: {e}")
+            return False, "exception"
+
+        if not ok:
+            return False, reason
+
+        # 人工登录"成功"也要复核会话文件真的落盘了：
+        # 磁盘满 / 目录只读时以前仍然返回成功，用户看到横幅消失，
+        # 下次刷新立刻又"需要登录"，形成"登录成功但抓不到作业"的循环。
+        try:
+            sess = auth_session_path(DATA_DIR, site)
+            if not os.path.exists(sess) or os.path.getsize(sess) == 0:
+                _remember_failure(site_id, "session_save_unusable")
+                print(f"[login] {site.get('name', site_id)}: 登录流程结束但会话文件不可用：{sess}")
+                return False, "session_save_unusable"
+        except Exception as e:
+            print(f"[login] 复核会话文件失败：{type(e).__name__}: {e}")
+
+        _relogin_clear(site_id)
+        return True, "ok"
+
+
+def auth_session_path(base_dir, site):
+    """会话文件路径的统一入口（转发到 adapters.auth.session_path）。
+
+    site_runner 与 6 个适配器必须用同一套口径，否则"配置里没写 session"
+    时会出现"登录写 A、抓取读 B"的断链。
+    """
+    try:
+        from adapters.auth import session_path
+        return session_path(base_dir, site)
+    except Exception:
+        name = site.get("session") or f"{site.get('id')}_session.json"
+        return os.path.join(base_dir, name)

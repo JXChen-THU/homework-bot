@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, asdict
 
 
@@ -24,3 +25,29 @@ class LoginRequiredError(Exception):
         self.site_id = site_id
         self.site_name = site_name
         super().__init__(f"{site_name} 需要登录")
+
+
+class FetchFailedError(Exception):
+    """已登录、但**抓取本身**失败（网络抖动、接口 5xx、页面结构变了）。
+
+    必须与 LoginRequiredError 分开：把接口 500 报成"需要登录"会触发
+    一次毫无意义的静默重登（每站 10~60 秒），并且给用户错误的横幅
+    —— 会话明明有效，用户却被叫去重新登录。
+    """
+    def __init__(self, site_id, site_name, detail=""):
+        self.site_id = site_id
+        self.site_name = site_name
+        self.detail = detail
+        super().__init__(f"{site_name} 抓取失败" + (f"：{detail}" if detail else ""))
+
+
+def session_path(base_dir, site):
+    """会话文件路径的**唯一口径**：配置里没写 session 时按站点 id 推断。
+
+    放在 base 而不是 auth：auth 依赖 playwright，而 6 个适配器都要拼这个路径，
+    没必要为了一个纯拼路径的函数把 playwright 引进来。
+    `adapters.auth.session_path` 只是转发到这里，保证全仓一套口径 ——
+    以前有 7 个调用点直接 `site["session"]`，用户手改配置删掉该键时
+    会出现"登录写 A 文件、抓取读 B 键"的断链（KeyError，永不自愈）。
+    """
+    return os.path.join(base_dir, site.get("session") or f"{site.get('id')}_session.json")

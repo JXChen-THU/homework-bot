@@ -19,7 +19,7 @@
 #   on_shown → events.shown.set()，所以窗口创建后这两个属性是立刻可读的。
 #
 # ★ 单独成模块只为一件事：**可以被测试**。放在 controller.py 里就得 import webview
-#   才能测一行纯逻辑。见 design-verify/liquid-glass/verify-float-place.js。
+#   才能测一行纯逻辑。（原先的自动验证脚本已随 design-verify/ 一起移除。）
 # ============================================================================
 
 

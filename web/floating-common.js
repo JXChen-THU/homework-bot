@@ -50,21 +50,25 @@ if (!window.hwTheme) {
 }
 
 function escapeHtml(value) {
-  return (value || '').replace(/[&<>"']/g, c => ({
+  // 必须先 String()：任务字段里有数字（uid / hours_left 之类），
+  // 数字是真值却带 .replace，`(value || '').replace` 会直接 TypeError。
+  return String(value === null || value === undefined ? '' : value).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 }
 
+/* 倒计时口径与主窗口 main.js 的 fmtRemaining 对齐：
+   过期就说「已过期」，不足一分钟说「即将到期」，绝不再输出「剩 1 分」
+   ——那会让已经过期的任务看起来还剩一分钟。 */
 function formatRemaining(hours) {
   if (hours === null || hours === undefined) return '';
-  const past = hours < 0;
-  const value = Math.abs(hours);
-  const prefix = past ? '已过期 ' : '剩 ';
-  if (value < 1) return prefix + Math.max(1, Math.round(value * 60)) + ' 分';
-  const days = Math.floor(value / 24);
-  const remainingHours = Math.floor(value % 24);
-  if (days > 0) return prefix + days + ' 天 ' + remainingHours + ' 小时';
-  return prefix + value.toFixed(1) + ' 小时';
+  if (hours <= 0) return '已过期';
+  if (hours < 1 / 60) return '即将到期';
+  if (hours < 1) return '剩 ' + Math.max(1, Math.round(hours * 60)) + ' 分';
+  const days = Math.floor(hours / 24);
+  const remainingHours = Math.floor(hours % 24);
+  if (days > 0) return '剩 ' + days + ' 天 ' + remainingHours + ' 小时';
+  return '剩 ' + hours.toFixed(1) + ' 小时';
 }
 
 let mainVisible = false;
@@ -129,27 +133,10 @@ function update(items) {
         checkbox.disabled = false;
         return;
       }
-      /* 勾完这条就被移出浮窗：向右滑走（横向位移 + 淡出），动画结束后删掉这个 DOM 节点。
-         纯 CSS 做不到这件事——窗口高度和行距由 controller._calc_height 与 flex 排布决定，
-         不删节点就会留一条空行，下面的任务也不会补位。
-         位移只有 X，不影响任何纵向几何；动画结束后 fill 随节点一起回收，不需要常驻 will-change。 */
-      const row = checkbox.closest('.item');
-      if (!row) return;
-      let anim;
-      try {
-        anim = row.animate(
-          [
-            { transform: 'translateX(0)', opacity: 1 },
-            { transform: 'translateX(18px)', opacity: 0.25, offset: 0.55 },
-            { transform: 'translateX(46px)', opacity: 0 },
-          ],
-          { duration: 240, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' }
-        );
-      } catch (_) {
-        row.remove();          // 不支持 Web Animations 就直接移除，不留下卡住的行
-        return;
-      }
-      anim.addEventListener('finish', () => row.remove());
+      /* 这条已经完成，行由后端重绘移除 —— toggle_done 返回之前 Python 侧
+         就调了 layout_all()，list.innerHTML 早把这一行换成了新节点，
+         所以这里不做位移动画：动画只会跑在游离节点上，用户看到的是"瞬移消失"。
+         窗口高度由 controller._calc_height 按后端数据重算，也不需要前端补位。 */
     });
   });
 }

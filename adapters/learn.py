@@ -1,6 +1,6 @@
-﻿import os
+import os
 import json
-from .base import Homework, LoginRequiredError
+from .base import Homework, LoginRequiredError, FetchFailedError, session_path
 
 
 def _get_courses(page):
@@ -159,7 +159,7 @@ def is_logged_in(page, site):
 # 静默登录配置
 # 网络学堂自己没有账号密码表单，点「登录」后跳到清华统一身份认证（id.tsinghua.edu.cn），
 # 那里才是 #i_user / #i_pass。注意：清华 SSO 对陌生浏览器会要求二次验证（企业微信/短信），
-# 因此 mfa_markers 只匹配二次验证页面上的真实字样，避免误判。
+# 因此只认 mfa_phrases / mfa_selectors 里那些"二次验证页面上的真实字样"，避免误判。
 LOGIN = {
     "pre_click": ["#loginButtonId", "input[value=登录]"],
     "after_pre_click_wait": 4000,
@@ -199,9 +199,44 @@ def _ready(page):
     return bool(_csrf_from_ctx(page.context))
 
 
+def _read_courses_cache(cache_file):
+    """读课程缓存；不存在或损坏都返回 None。
+
+    以前这里直接 `json.load`，缓存被写坏（写盘中断、磁盘满、同步工具）后
+    **每一次刷新**都在这里抛 JSONDecodeError，而 site_runner 的"会话损坏"
+    判据只看会话文件，于是既不自愈也不重登 —— 用户只能去设置面板点「清除登录」。
+    损坏的缓存应当被丢弃并重建，而不是让整个站点永久失败。
+    """
+    if not os.path.exists(cache_file):
+        return None
+    try:
+        with open(cache_file, encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, list) else None
+    except Exception as e:
+        print(f"[learn] 课程缓存损坏，已丢弃并重新扫描：{type(e).__name__}: {e}")
+        try:
+            os.remove(cache_file)
+        except Exception:
+            pass
+        return None
+
+
+def _write_courses_cache(cache_file, courses):
+    """原子写课程缓存（这里原先是全仓唯一一处绕过 atomic_write_text 的数据直写）。"""
+    text = json.dumps(courses, ensure_ascii=False, indent=2)
+    try:
+        from core.site_runner import atomic_write_text
+        ok, err = atomic_write_text(cache_file, text)
+        if not ok:
+            print(f"[learn] 课程缓存写入失败（不影响本次抓取）：{err}")
+    except Exception as e:
+        print(f"[learn] 课程缓存写入异常：{type(e).__name__}: {e}")
+
+
 def fetch_homeworks(site, base_dir):
     """静默抓取所有课程的作业"""
-    session = os.path.join(base_dir, site["session"])
+    session = session_path(base_dir, site)
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
@@ -228,19 +263,18 @@ def fetch_homeworks(site, base_dir):
         configured = site.get("courses") or []
         if configured:
             courses = [{"id": c["wlkcid"], "name": c.get("name", "")} for c in configured]
-        elif os.path.exists(cache_file):
-            with open(cache_file, encoding="utf-8") as f:
-                raw = json.load(f)
-            # 兼容旧缓存格式
-            if raw and isinstance(raw[0], str):
-                courses = [{"id": x, "name": ""} for x in raw]
-            else:
-                courses = raw
         else:
-            courses = _get_courses(page)
-            if courses:
-                with open(cache_file, "w", encoding="utf-8") as f:
-                    json.dump(courses, f, ensure_ascii=False, indent=2)
+            raw = _read_courses_cache(cache_file)
+            if raw is not None:
+                # 兼容旧缓存格式
+                if raw and isinstance(raw[0], str):
+                    courses = [{"id": x, "name": ""} for x in raw]
+                else:
+                    courses = raw
+            else:
+                courses = _get_courses(page)
+                if courses:
+                    _write_courses_cache(cache_file, courses)
 
         if not courses:
             ctx.close()
@@ -251,17 +285,38 @@ def fetch_homeworks(site, base_dir):
 
         # 逐门课抓作业
         all_homeworks = []
+        failed_courses = []
         for c in courses:
             data = _fetch_one_course(page, c["id"], csrf)
-            body = data.get("body") if isinstance(data, dict) else ""
+            # httpStatus 一直是产出了却没人读的字段：401/500 的错误页会被
+            # json.loads 静默吞掉，于是"会话过期"被播报成"完成 0 条"，
+            # 既不进 errors 也不触发重登。
+            status = data.get("httpStatus") if isinstance(data, dict) else None
+            body = (data.get("body") if isinstance(data, dict) else "") or ""
+            if status in (401, 403):
+                ctx.close()
+                raise LoginRequiredError(site["id"], site["name"])
             try:
                 parsed = json.loads(body)
             except Exception:
                 parsed = None
             if parsed:
                 all_homeworks.extend(_extract(parsed, site, c.get("name", "")))
+            else:
+                label = c.get("name") or c["id"]
+                failed_courses.append(f"{label}（HTTP {status}）")
 
         ctx.close()
+
+        if failed_courses and not all_homeworks:
+            # 所有课程都没有可用响应：这是抓取失败，不是"没有作业"。
+            raise FetchFailedError(
+                site["id"], site["name"],
+                "作业接口没有一条可用响应：" + "、".join(failed_courses[:3]))
+        if failed_courses:
+            print(f"[learn] {len(failed_courses)} 门课的接口没有可用响应，已跳过："
+                  + "、".join(failed_courses[:3]))
+
         return all_homeworks
 
 

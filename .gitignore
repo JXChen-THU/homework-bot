@@ -1,4 +1,4 @@
-# Python
+# ---------------------------------------------------------------- Python
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -6,38 +6,30 @@ __pycache__/
 venv/
 env/
 
-# 用户数据（含登录凭证、数据库、缓存）
+# ---------------------------------------------------------------- 用户数据
+# 这些文件包含登录凭证、完成记录与课程缓存，绝不入库
 data/
 sites.yaml
+*.bak
+*.db
+*_session.json
+*_courses.json
 
-# PyInstaller 打包产物
+# ---------------------------------------------------------------- 打包产物
+# 注意：HomeworkTasks.spec 是**发布配方，必须入库**（README 的打包步骤要用它），
+# 所以这里不能忽略 *.spec —— 早期版本忽略它，导致 clone 后按 README 打包必然失败。
 build/
 dist/
-*.spec
 
-# 编辑器
+# ---------------------------------------------------------------- 编辑器与日志
 .vscode/
 .idea/
 *.swp
 .DS_Store
-
-# 日志
-*.log
-recon-sandbox*/
-data/
-sites.yaml
-build/
-dist/
-.venv/
-__pycache__/
-*.spec
 *.log
 
-*.db
-*.pyc
-*_session.json
-*_courses.json
-
-# 本地侦察/测试脚本（会读取 sites.yaml，不入库）
+# ---------------------------------------------------------------- 本地脚本
+# 会读取 sites.yaml 的临时侦察脚本（这些目录在工作区里、不在本仓库内，
+# 规则留着是为了防止将来误建到仓库里）
 recon/
-recon-archive/
+recon-sandbox*/

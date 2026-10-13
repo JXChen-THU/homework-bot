@@ -39,7 +39,7 @@
    不变量：
    1. 圆角只有三档 --r-ctl / --r-row / --r-panel；模糊只有三档；时长只有四个。
    2. 承载文字的表面必须够实：alpha 按"背后最坏情况"反算，
-      改 alpha 之前先重跑 design-verify/liquid-glass/verify.js。
+      改 alpha 前请人工核对三处浮窗的对比度（原自动验证脚本已移除）。
    3. 状态不能只靠颜色表达（同时有措辞 / 位置 / 线条差异）。
    ========================================================================== */
 
@@ -103,30 +103,11 @@
   
   
 
-  /* ---------- 浮窗 · 亮主题 = 浅色玻璃 + 墨字 ----------
-     浮窗窗口是真的（pywebview transparent=True），但**内容层给的是固有色底板**：
-     --float-tint 完全不透明，桌面不再透进来。
-     好处是对比度不再依赖壁纸 —— 浅色底 + 墨字是确定的数学关系，
-     不用再按"最坏壁纸"反算，也不怕花哨壁纸把可读性吃掉。
-     浅蓝 = 常驻白窗的标识色；橙红 = 紧急窗的标识色。 */
+  /* ---------- 浮窗 · 亮暗两套主题 ----------
+     浮窗那套 --float-* / --plate-*（含暗主题覆盖）已经全部收进
+     theme-shared.css，这里不再留副本，也不再留已经失效的 --float-tint-top。
+     常驻窗的浅蓝标识与紧急窗的橙红标识同样定义在共享表里。 */
   
-  --float-tint-top:   rgba(255, 255, 255, 0.72);
-  
-  
-  
-  
-  
-  
-  
-  
-  
-     /* 常驻窗：浅蓝标识 */
-  
-     /* 紧急窗：橙红标识 */
-  
-  
-
-  /* ---------- 浮窗 · 暗主题 = 深色底板 + 白字 ---------- */
   
   
   
@@ -183,22 +164,6 @@ html[data-lg-dark] {
   
   
 
-  /* 浮窗整体切到深色玻璃 + 白字 */
-  
-  --float-tint-top:   var(--float-dark-tint-top);
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
 }
 
 /* 关掉系统透明效果：两套主题都退回实体色，对比度不变 */
@@ -207,12 +172,6 @@ html[data-lg-dark] {
     --surface:     #ffffff;
     --surface-row: #ffffff;
     --surface-hi:  #ffffff;
-    --float-tint:       #f7f9fc;
-    --float-tint-top:   #ffffff;
-  }
-  html[data-lg-dark] {
-    --float-tint:     #131a28;
-    --float-tint-top: #1b2434;
   }
 }
 
@@ -1171,6 +1130,17 @@ html[data-lg-dark] .del:hover {
   color: var(--ink-2);
   opacity: 1;
 }
+/* 需要登录时后端可选给出的诊断摘要（need_login[].detail）：
+   比原因话术小一号、缩进一点，紧跟在所属那一行下面。
+   等宽 + break-all 的理由同 .startup-detail —— 里面常有路径 / 选择器 / URL。 */
+.banner .need-login-detail {
+  margin: 4px 0 0 2px;
+  font-size: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  word-break: break-all;
+  color: var(--ink-2);
+  opacity: 1;
+}
 /* 暗主题提示条：同样"左端语义色 → 右端收口"，但收口要收在**不透明的深色**上
    （浅色主题是收到白）。用半透明的深色收口，右端会露出底版、发虚，
    和任务卡右端原来是白斑是同一类问题。
@@ -1480,6 +1450,16 @@ html[data-lg-dark] .del {background: rgba(255, 255, 255, 0.06); }
   letter-spacing: 0.01em;
 }
 html[data-lg-dark] .empty .msg {color: var(--ok); }
+/* 加载失败的空态（load() 的 catch 里，且列表原本为空时才出现）：
+   .empty 默认的绿色 msg 是"任务都完成了"的语义，故障不能借用，
+   所以这里换成 danger，并加一行说明下一步该做什么。 */
+.empty.failed .msg { color: var(--danger); }
+html[data-lg-dark] .empty.failed .msg { color: var(--danger); }
+.empty .sub {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
 
 /* ---------------------------------------------------------------------- 弹窗 */
 /* 遮罩刻意很淡：它的作用是"把注意力收到弹窗上"，不是把底版压暗。

@@ -42,6 +42,8 @@
 
 - 当前使用说明统一放在根目录 `README.md`
 - 历史 README 归档到 `docs/archive/readme/`
+  （**v26.5 更正**：该目录已在 v26.5.2 删除。历史 README 现在只能从 git 历史查看：
+  `git log --diff-filter=D -- docs/archive/readme/`）
 - 各版本 CHANGE 日志集中放在 `docs/changelog/`，每个版本单独成文
 
 ---
