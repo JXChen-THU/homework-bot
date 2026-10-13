@@ -1,7 +1,7 @@
 import os
 import re
 from urllib.parse import urlparse
-from .base import Homework, LoginRequiredError, session_path
+from .base import Homework, LoginRequiredError, FetchFailedError, session_path
 
 
 # 匹配形如 "2026-10-09 23:59:00" 的日期
@@ -128,23 +128,46 @@ def fetch_homeworks(site, base_dir):
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    from .auth import browser_session, wait_for_ready
+    from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
+                       page_on_login_page, site_urls_of,
+                       SESSION_PROBE_MS, DATA_READY_MS)
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         try:
             page = ctx.new_page()
             page.goto(site["url"], wait_until="domcontentloaded")
-            # 等到作业列表出现就继续（不等 networkidle）
-            got = wait_for_ready(
+            logins = [login_url(site), "id.tsinghua.edu.cn"]
+            # 先短预检（1 秒）+ 看到登录页就早退；只有"预检没就绪但不在登录页"
+            # 才再给一次数据时限（详见 auth.SESSION_PROBE_MS 的说明）。
+            ready = wait_for_ready(
                 page, lambda pg: len(_extract(pg, site)) > 0,
-                timeout_ms=15000, what="清华 OJ 作业列表")
-            if not got:
-                page.wait_for_timeout(2000)
+                timeout_ms=SESSION_PROBE_MS, what="清华 OJ 作业列表（会话预检）",
+                login_urls=logins, site_urls=site_urls_of(site))
+            timed_out = False
+            if not ready:
+                if page_on_login_page(page, logins, site_urls=site_urls_of(site)):
+                    # 确定会话失效（页面已被跳到登录页），立刻判"需要登录"
+                    raise LoginRequiredError(site["id"], site["name"])
+                timed_out = True
+                ready = wait_for_ready(
+                    page, lambda pg: len(_extract(pg, site)) > 0,
+                    timeout_ms=DATA_READY_MS, what="清华 OJ 作业列表（数据）",
+                    login_urls=logins, site_urls=site_urls_of(site))
 
+            if ready or len(_extract(page, site)) > 0:
+                return _extract(page, site)
+
+            # ★ 顺序很关键：**超时这条信号要排在 _is_logged_in 的兜底之前**。
+            #   _is_logged_in 最后会退回"正文里有没有退出入口"这种间接判据，
+            #   页面还没渲染完时它同样返回 False —— 于是"慢"会被当成"会话失效"，
+            #   触发一次白跑的静默重登（10~60 秒，还可能弹窗）。
+            #   真正确定失效的情形（跳登录页 / 明确未登录）走 LoginRequiredError。
+            if timed_out and not _is_logged_in(page, site):
+                raise FetchFailedError(site["id"], site["name"],
+                                       timeout_detail("清华 OJ 作业列表"))
             if not _is_logged_in(page, site):
                 raise LoginRequiredError(site["id"], site["name"])
-
             return _extract(page, site)
         finally:
             try:

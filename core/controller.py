@@ -175,14 +175,40 @@ def _fatal_dialog(title, message):
 # ============================================================
 # 浮窗布局
 # ============================================================
-def _calc_height(n, header=42, row=22, max_rows=8, max_h=260):
+def _calc_height(n, header=44, row=19.19, max_rows=4, pad=0, min_h=0):
+    """浮窗高度 = 标题栏 + 可见行数 × 行距 + 列表内边距。
+
+    ★ 这几个数是**实测**出来的，不是估的（DPR=1，Edge/WebView2）：
+        .header 高 44px
+        .item  高 16.1875px + margin-bottom 3px = 行距 19.19px
+        列表内边距：待办窗 0/0、紧急窗 4px/5px
+      改 CSS 里这三处任何一处，都必须同步改这里（浮窗行距是硬约束）。
+
+    ★ 历史值为什么是错的：原来是 header=42/46、row=20/22、外加 "+16"，
+      再在"超过上限"时 "+18"（给"...还有 N 条"留位置）。
+      但 .header 实际是 44、行距实际是 19.19，所以每一行都多算了 2.8px，
+      高度一直偏大；而 "+18" 现在也不需要了 —— 条数不再截断，
+      超出的部分在窗内滚动（见 #list 的 overflow-y:auto）。
+
+    max_rows 就是"可见行数上限"：紧急窗 4、待办窗 6。任务更多时窗口**不再长高**，
+    多出来的行靠滚动看。max_h 仍留作最后一道保险。
+    """
     if n <= 0:
         return 60
     rows = min(n, max_rows)
-    h = header + rows * row + 16
-    if n > max_rows:
-        h += 18
-    return max(70, min(h, max_h))
+    h = header + rows * row + pad
+    return max(min_h, h)
+
+
+# 两个浮窗的实测参数（与 panel.css / alert.css 配对，改一处就要改另一处）
+ALERT_HEADER_H = 44.0
+ALERT_LIST_PAD = 9.0    # 紧急窗 #list padding 4px + 5px
+ALERT_ROW_H = 19.19     # .item 16.1875 + margin-bottom 3
+ALERT_MAX_ROWS = 4      # 最多显示 4 行，再多的滚动
+PANEL_HEADER_H = 44.0
+PANEL_LIST_PAD = 9.0    # 待办窗 #list padding 4px + 5px（与紧急窗同做法）
+PANEL_ROW_H = 19.19
+PANEL_MAX_ROWS = 6      # 最多显示 6 行，再多的滚动
 
 
 def _sync_main():
@@ -356,7 +382,8 @@ def layout_all():
     # ========== 红窗 ==========
     if urgent and not _alert_dismissed:
         w = ALERT_W
-        h = _calc_height(len(urgent), header=42, row=20, max_rows=8, max_h=260)
+        h = int(round(_calc_height(len(urgent), header=ALERT_HEADER_H, row=ALERT_ROW_H,
+                                   max_rows=ALERT_MAX_ROWS, pad=ALERT_LIST_PAD)))
 
         if not _alert_minimized:
             try:
@@ -382,7 +409,8 @@ def layout_all():
     # ========== 白窗 ==========
     if normal and not _panel_dismissed:
         w = ALERT_W
-        h = _calc_height(len(normal), header=46, row=22, max_rows=12, max_h=360)
+        h = int(round(_calc_height(len(normal), header=PANEL_HEADER_H, row=PANEL_ROW_H,
+                                   max_rows=PANEL_MAX_ROWS, pad=PANEL_LIST_PAD)))
 
         if not _panel_minimized:
             try:
@@ -521,6 +549,56 @@ def set_autostart_status(enabled):
 
 
 # ============================================================
+# 任务数据：缓存/DB 合并
+# ============================================================
+def _merge_cached(cached, done_rows, manual_rows):
+    """把一批站点任务与 DB 里的手动任务合并成一份 items。幂等。
+
+    启动闸门短路与正常路径共用这一份逻辑。三个约束都是踩过的坑：
+
+    1. **必须把结果写回 `_items_cache`**（见调用处）：`_sync_main()` 与
+       `layout_all()` 都以缓存为唯一来源，缓存和返回值一旦不一致，
+       用户勾一下复选框就会看到列表被刷空。
+    2. **必须幂等**：缓存里可能已经有一份同 uid 的手动任务（本次会话里
+       `add_task` 加进去的），再从 DB 追加一遍就会变成两行，其中一行
+       没有删除按钮。
+    3. **`manual` 标记要保留**：缓存里 `add_task` 写入的那份本来带
+       `manual: True`（前端据此显示删除按钮），硬写 False 会让它变成
+       "站点任务"。正常路径传进来的 `fetched` 没有这个键 → 仍是 False。
+    """
+    items = []
+    seen = set()
+    for it in cached or []:
+        d = dict(it)
+        uid = d.get("uid")
+        if uid:
+            if uid in seen:
+                continue
+            seen.add(uid)
+        d["done"] = uid in done_rows
+        d["manual"] = bool(d.get("manual"))
+        items.append(d)
+
+    for uid, title, course, due, url in manual_rows:
+        # 缓存里已经有同一条（本次会话里刚 add_task 过）→ 不再追加
+        if uid in seen:
+            continue
+        items.append({
+            "site": "manual",
+            "site_name": "手动",
+            "uid": uid,
+            "title": title or "",
+            "course": course or "",
+            "start": "",
+            "end": due or "",
+            "url": url or "",
+            "done": uid in done_rows,
+            "manual": True,
+        })
+    return items
+
+
+# ============================================================
 # Api 类
 # ============================================================
 class Api:
@@ -643,6 +721,82 @@ class Api:
             _startup_shown = True
             show_main_window()
 
+        # ---------- 启动闸门：一个会话文件都没有的机器不要白等一轮抓取 ----------
+        #
+        # 判定与理由见 core.site_runner.startup_gate()。这里只做三件事：
+        #   1) 跳过这轮抓取（否则 wait_for_network 最多 120 秒 + 每个站点
+        #      拉起一个 Playwright 等登录页超时）；
+        #   2) 把窗口显示出来（静默档也要显示：用户此时还没有会话文件，
+        #      他必须去填账号密码，不显示窗口就完全看不到入口）；
+        #   3) 回一份 {"gate": ...} 让前端给出"去填账号密码"的引导。
+        #
+        # 注意：**不清缓存**。用户可能已经手动加过任务，那批数据还在缓存里，
+        # 不能被这次短路清掉；返回前还要把合并结果写回缓存（见下）。
+        try:
+            from core.site_runner import startup_gate
+            gate = startup_gate()
+        except Exception as e:
+            print(f"[startup] 闸门判定失败，按正常流程抓取：{type(e).__name__}: {e}")
+            gate = {"skip": False, "sites": []}
+
+        if gate.get("skip"):
+            gate_sites = gate.get("sites") or []
+            # 标记首轮已结束：_startup_show_fallback 那条兜底线程本来是为
+            # "太久没拿到数据就把窗口显示出来"准备的，而这里窗口已经显示、
+            # 而且这一轮压根不会去抓。不标记的话它会白睡最多 300 秒。
+            _first_load_done = True
+            if not _startup_shown:
+                # 可见档在闸门之前已经显示过一次（上面那段），不重复调
+                _startup_shown = True
+                try:
+                    show_main_window()
+                except Exception as e:
+                    print(f"[startup] 显示主窗口失败：{type(e).__name__}: {e}")
+            # 首轮网络等待留给**第一次真正的抓取**（用户填完账号密码之后）。
+            # 现在把它标记为"等过了"，那 120 秒的等待就被这次短路吃掉了，
+            # 用户填完账号后的第一次抓取反而可能在没网时直接失败。
+            try:
+                from core import site_runner
+                with site_runner._network_lock:
+                    site_runner._network_waited = False
+            except Exception:
+                pass
+
+            with _cache_lock:
+                cached = list(_items_cache)
+            conn = get_conn(DB)
+            try:
+                done_rows = dict(conn.execute("SELECT uid, done_at FROM done").fetchall())
+                manual_rows = conn.execute(
+                    "SELECT uid, title, course, due, url FROM manual_tasks"
+                ).fetchall()
+            finally:
+                conn.close()
+
+            print(f"[startup] 没有会话文件也没有账号密码，本轮跳过抓取"
+                  f"（{len(gate_sites)} 个站点待配置），直接显示窗口")
+            items = _merge_cached(cached, done_rows, manual_rows)
+            # ★ 必须写回缓存：_sync_main() / layout_all() 都只认 _items_cache，
+            #   不写回的话用户一勾复选框就会收到一份**不含手动任务**的缓存，
+            #   列表当场被刷空（DB 里其实还在），再刷新还会出现重复行。
+            with _cache_lock:
+                _items_cache = items
+            return {
+                "items": items,
+                "errors": [],
+                "need_login": gate_sites,
+                "startup": paths.startup_messages() + list(_startup_warnings),
+                "gate": {
+                    "skipped": True,
+                    "sites": gate_sites,
+                    "message": (
+                        "这是第一次运行：还没有任何登录状态。"
+                        "程序没有去抓作业（抓也只会失败，还要等网络和浏览器），"
+                        "请先在「设置 → 填账号密码」里填好账号密码。"
+                    ),
+                },
+            }
+
         # 抓取放到锁里：连点刷新时两轮进度行会交叉串台。
         # 串行的代价是第二次刷新要等第一次结束 —— 比进度错乱可接受。
         with _fetch_lock:
@@ -668,26 +822,18 @@ class Api:
         finally:
             conn.close()
 
-        items = []
+        fetched = []
+        seen_uids = set()
         for hw in homeworks:
             d = hw.to_dict()
-            d["done"] = d["uid"] in done_rows
-            d["manual"] = False
-            items.append(d)
+            # 去重：适配器抓回来的同一个作业不能因为出现在两个面板里
+            # 就在列表里出现两行（README 承诺的是"合并成一个面板"）
+            if d.get("uid") in seen_uids:
+                continue
+            seen_uids.add(d.get("uid"))
+            fetched.append(d)
 
-        for uid, title, course, due, url in manual_rows:
-            items.append({
-                "site": "manual",
-                "site_name": "手动",
-                "uid": uid,
-                "title": title or "",
-                "course": course or "",
-                "start": "",
-                "end": due or "",
-                "url": url or "",
-                "done": uid in done_rows,
-                "manual": True,
-            })
+        items = _merge_cached(fetched, done_rows, manual_rows)
 
         with _cache_lock:
             _items_cache = items
@@ -1134,10 +1280,19 @@ def main():
         _main_window.events.minimized += _on_main_minimized
         _main_window.events.restored += _on_main_restored
 
+        # ★ 浮窗**不设 on_top**：设了就是"永远置顶"，用户新开的浏览器会被它压住，
+        #   而正常窗口应该是"后打开的盖住先打开的"。
+        #   去掉之后浮窗回到普通窗口层级：别人可以盖住它，点一下它又能到前面。
+        #   （下面用 bring_to_front 在"主面板显示/浮窗出现"时把浮窗提到 C 之前，
+        #     保证浮窗始终在主面板之上，但不越过用户后来打开的其它程序。）
         _alert_window = webview.create_window(
             "警告", alert_path, js_api=api,
-            frameless=True, on_top=True, hidden=True,
-            width=ALERT_W, height=140,
+            frameless=True, hidden=True,
+            width=ALERT_W,
+            # 初始高度就按"满 4 行"给，与 layout_all 用同一公式 —— 否则第一帧尺寸
+            # 和之后的不一致，窗口会先大一下再缩（和位置闪烁同一类问题）
+            height=int(round(_calc_height(ALERT_MAX_ROWS, header=ALERT_HEADER_H, row=ALERT_ROW_H,
+                                          max_rows=ALERT_MAX_ROWS, pad=ALERT_LIST_PAD))),
             transparent=True,
             # ★ 初始位置必须在建窗时给出，否则 WinForms 用 CenterScreen，
             #   第一次显示会先出现在屏幕中央（见上面的长注释）
@@ -1145,8 +1300,10 @@ def main():
         )
         _panel_window = webview.create_window(
             "提醒", panel_path, js_api=api,
-            frameless=True, on_top=True, hidden=True,
-            width=ALERT_W, height=200,
+            frameless=True, hidden=True,
+            width=ALERT_W,
+            height=int(round(_calc_height(PANEL_MAX_ROWS, header=PANEL_HEADER_H, row=PANEL_ROW_H,
+                                          max_rows=PANEL_MAX_ROWS, pad=PANEL_LIST_PAD))),
             transparent=True,
             # 面板的 y 还要看红窗有没有显示，这里先按"只有面板"的那档给；
             # 有数据后 _place_float 会再修正一次（那时窗口已经不在屏幕中央了）

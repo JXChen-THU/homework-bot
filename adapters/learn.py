@@ -243,21 +243,46 @@ def fetch_homeworks(site, base_dir):
     # 课程列表缓存（避免每次扫描）
     cache_file = os.path.join(base_dir, f"{site['id']}_courses.json")
 
-    from .auth import browser_session, wait_for_ready
+    from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
+                       page_on_login_page, site_urls_of,
+                       SESSION_PROBE_MS, DATA_READY_MS)
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         page = ctx.new_page()
         page.goto(site["base_url"], wait_until="domcontentloaded")
-        # 等到登录态 + CSRF 就绪就继续，不等 networkidle
-        if not wait_for_ready(page, _ready, timeout_ms=15000,
-                              what="网络学堂页面就绪"):
-            page.wait_for_timeout(3000)
+        logins = [login_url(site), "id.tsinghua.edu.cn"]
+        # 先给一个**很短的**预检（1 秒）：会话有效时 1.3 秒左右就绪，
+        # 会话失效时页面已经跳到登录页 —— wait_for_ready 会当场结束等待，
+        # 不再白睡 15 秒（实测过期会话 0.1~0.3 秒就判定出"要登录"）。
+        ready = wait_for_ready(
+            page, _ready, timeout_ms=SESSION_PROBE_MS,
+            what="网络学堂页面就绪（会话预检）",
+            login_urls=logins, site_urls=site_urls_of(site))
+        if not ready:
+            # 预检没就绪：如果已经落在登录页/认证页上，那就是**确定**会话失效，
+            # 不必再等（这正是以前白睡 15 秒的那条路）。
+            if page_on_login_page(page, logins, site_urls=site_urls_of(site)):
+                ctx.close()
+                raise LoginRequiredError(site["id"], site["name"])
+            # 不在登录页上，也没就绪 —— 可能只是页面/接口慢：给一次数据时限。
+            wait_for_ready(
+                page, _ready, timeout_ms=DATA_READY_MS,
+                what="网络学堂页面就绪（数据）",
+                login_urls=logins, site_urls=site_urls_of(site))
 
         # 判断是否登录
         if not _on_logged_in_page(page):
+            if page_on_login_page(page, logins, site_urls=site_urls_of(site)):
+                ctx.close()
+                raise LoginRequiredError(site["id"], site["name"])
+            # ★ 等了 DATA_READY_MS 还没内容，又**没有任何**失效信号
+            #   （页面没跳登录页）—— 这时候判不出来，就不能报"需要登录"：
+            #   那会触发一次白跑的后台重登（每站 10~60 秒，还可能弹窗）。
+            #   走 FetchFailedError：播报一条可读的错误，用户点刷新重试。
             ctx.close()
-            raise LoginRequiredError(site["id"], site["name"])
+            raise FetchFailedError(site["id"], site["name"],
+                                   timeout_detail("网络学堂页面"))
 
         # 优先用配置 -> 其次缓存 -> 最后现场扫描
         configured = site.get("courses") or []

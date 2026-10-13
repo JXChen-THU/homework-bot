@@ -93,7 +93,9 @@ def fetch_homeworks(site, base_dir):
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    from .auth import browser_session, wait_for_ready
+    from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
+                       page_on_login_page, site_urls_of,
+                       SESSION_PROBE_MS, DATA_READY_MS)
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
@@ -101,32 +103,52 @@ def fetch_homeworks(site, base_dir):
             page = ctx.new_page()
             page.goto(site["base_url"], wait_until="domcontentloaded")
 
-            # 轮询考试接口：能返回 success 就立刻继续（不等 networkidle）
-            wait_for_ready(
-                page,
-                lambda pg: (lambda d: isinstance(d, dict) and bool(d.get("success")))(
-                    _fetch_exams(pg)),
-                timeout_ms=15000, what="U校园考试接口")
+            def _ok(pg):
+                d = _fetch_exams(pg)
+                return isinstance(d, dict) and bool(d.get("success"))
 
-            # 检查是否被踢回登录页
-            if "login" in page.url.lower() or "sso" in page.url.lower():
+            logins = [login_url(site)]
+            # 短预检（1 秒）：接口能返回 success 就立刻继续；被踢回登录页时
+            # wait_for_ready 会当场结束等待，不再白睡 15 秒。
+            got = wait_for_ready(
+                page, _ok,
+                timeout_ms=SESSION_PROBE_MS, what="U校园考试接口（会话预检）",
+                login_urls=logins, site_urls=site_urls_of(site))
+
+            # 预检没成功、也没被跳到登录页 → 可能只是接口慢：再给一次数据时限。
+            # 无论走哪条，下面的正式取值 + 401/403 分流都不变，
+            # 所以"慢"不会被误判成"需要登录"。
+            if not got:
+                got = wait_for_ready(
+                    page, _ok,
+                    timeout_ms=DATA_READY_MS, what="U校园考试接口（数据）",
+                    login_urls=logins, site_urls=site_urls_of(site))
+
+            # 检查是否被踢回登录页（会话失效时这是最确定的信号）
+            if page_on_login_page(page, logins, site_urls=site_urls_of(site)):
                 raise LoginRequiredError(site["id"], site["name"])
 
             data = _fetch_exams(page)
 
-            if not isinstance(data, dict) or not data.get("success"):
-                # 接口失败 ≠ 未登录：401/403 才算会话失效，
-                # 5xx 和网络异常是抓取失败（报成"需要登录"会触发无意义的重登）。
-                code = data.get("_http") if isinstance(data, dict) else None
-                if code in (401, 403):
-                    raise LoginRequiredError(site["id"], site["name"])
-                if code or (isinstance(data, dict) and data.get("_err")):
-                    raise FetchFailedError(
-                        site["id"], site["name"],
-                        f"考试接口失败（{('HTTP %s' % code) if code else data.get('_err')}）")
-                raise LoginRequiredError(site["id"], site["name"])
+            if isinstance(data, dict) and data.get("success"):
+                return _extract(data, site)
 
-            return _extract(data, site)
+            # 接口失败 ≠ 未登录。顺序就是优先级：
+            #   1) 401/403        → 确定的会话失效，该重登就重登
+            #   2) 5xx / 网络异常  → 抓取失败（不触发重登）
+            #   3) 两段轮询都超时、又没有失效信号 → **不要**猜成"需要登录"：
+            #      那会触发一次白跑的静默重登。报抓取超时，让用户刷新重试。
+            code = data.get("_http") if isinstance(data, dict) else None
+            if code in (401, 403):
+                raise LoginRequiredError(site["id"], site["name"])
+            if code or (isinstance(data, dict) and data.get("_err")):
+                raise FetchFailedError(
+                    site["id"], site["name"],
+                    f"考试接口失败（{('HTTP %s' % code) if code else data.get('_err')}）")
+            if not got:
+                raise FetchFailedError(site["id"], site["name"],
+                                       timeout_detail("U校园考试接口"))
+            raise LoginRequiredError(site["id"], site["name"])
         finally:
             try:
                 ctx.close()

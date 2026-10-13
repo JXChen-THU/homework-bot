@@ -390,6 +390,10 @@ body {
   --plate-card:      rgba(255, 255, 255, 0.06);
   --plate-card-hi:   rgba(255, 255, 255, 0.13);
   --plate-card-line: rgba(255, 255, 255, 0.10);
+  /* 滚动条：只在任务超过可见行数时出现（见 #list 的 overflow-y:auto）。
+     刻意做细、半透明 —— 浮窗是玻璃，系统那条亮灰粗条太抢。 */
+  --plate-scroll:    rgba(11, 19, 32, 0.22);
+  --plate-scroll-hi: rgba(11, 19, 32, 0.38);
   /* 玻璃面 = 两层：
        1) 受光：顶部微亮、线性收到 100%（覆盖整个高度 —— 紧急窗只有 118px，
           如果让它在 76% 就回落到 0，矮窗里只剩 45px 的段落，量出来几乎平）
@@ -404,16 +408,14 @@ body {
 /* ---------------------------------------------------------------- 亮主题 */
 /* 未完成：天蓝 */
 body {
-  /* 待办窗（亮主题）：**调淡**，不是调亮。
-     原色 #0d6efd = HSL(216, 98%, 52%) —— 饱和 98% 本身就是"很艳"。
-     做法：亮度 52% → 62%，饱和 98% → 71%（原来的 0.72 倍）→ #5991e3。
-     ★ 一开始按"新浅 = 2a − b"算成了 #00a2ff，那是**又亮又更饱和**（100%、
-       撞到色域上限），方向和"淡"正好相反。
-     ★ 副作用：底板亮度 0.183 → 0.279，白字只剩 2.5:1，所以字色一并换墨字
-       （5.83:1）—— 这也正是"浅色主题用黑字更多"的那条调性。 */
-  --plate-bg:    #5991e3;
+  /* 待办窗（亮主题）：**很淡的蓝**。
+     两轮调整：先按"深色待办 vs 深色底版中心"的差距把 #5991e3 降到 #a4bce0，
+     用户反馈还是偏深（"更透一点，更淡一点"），再降一档到 #bdcbe0
+     （色相 216° 不变，亮度 76% → 81%，饱和 49% → 35%）。
+     对底版中心 1.44:1；正文 11.4:1、次级 9.3:1，余量更足。 */
+  --plate-bg:    #bdcbe0;
   --plate-text:  #0b1320;
-  /* 次级文字：比正文浅一点但仍够 4.5（底端 4.55:1） */
+  /* 次级文字：底板变浅后余量更足 */
   --plate-text2: #0c2740;
   /* 亮底板上所有半透明白都要换成"半透明墨"：白叠亮蓝等于没叠 */
   --plate-line:  rgba(11, 19, 32, 0.20);
@@ -421,37 +423,59 @@ body {
   --plate-btn-hi: rgba(255, 255, 255, 0.66);
   /* 一块淡蓝板直接压在壁纸上会"发飘"，垫一层极淡的暗底给它一个面 */
   --plate-under: rgba(11, 19, 32, 0.10);
-  --plate-fade:  rgba(0, 0, 0, 0.025);
-  /* ★ 标识色必须跟着底板一起变：共享 token 里的 --float-mark（#2b6fd4）
-     是为**更浅的旧底板**定的，放到这块淡蓝上只有 2.2:1，复选框描边会看不清。
-     这里只覆盖**浮窗页的亮主题**作用域；主窗口亮主题用法不同，不受影响。 */
-  --float-mark:  #1d4ed8;
-  /* ★ 亮底板的受光要**反过来算**：底板亮、字墨，原来那档 rgba(255,255,255,0.08)
-     的白线叠在亮蓝上比周围更暗，量出来是 -0.13（一条暗线）。
-     亮底板的玻璃高光应该是"更白的白"，0.08 这一档实测约 0.03 亮度差。 */
-  --plate-topline:  rgba(255, 255, 255, 0.08);
-  --plate-inner:    rgba(255, 255, 255, 0.34);
+  /* ★ 压深要**明显加强**：浅底上同一档黑的视觉分量远小于深底。
+     以前 0.025 量出来色阶跨度只有 0.049（几乎平），0.09 提到 0.149 —— 约 3 倍，
+     这才是"有厚度"的来源。再往上会压脏，且标识色会掉到 3.0 以下。 */
+  --plate-fade:  rgba(0, 0, 0, 0.09);
+  /* ★ 标识色要跟着底板走：共享 token 里的 --float-mark（#2b6fd4）是给旧底板定的。
+     #1d4ed8 在淡红板上只有 2.98:1（不达 3.0 门槛），所以取更深一档
+     #1a45c4：压深后淡蓝板 3.24:1、淡红板 3.38:1，两块板都过。 */
+  --float-mark:  #1a45c4;
+  /* ★ 玻璃高光（浅色的一套，与深色分开定，因为同样的白在亮底上弱得多）：
+       --plate-sheen 的受光 0.055 → 0.14、底部压深 0.025 → 0.09；
+       --plate-topline 0.08 → 0.22（顶部那条 1px 亮线）；
+       --plate-inner   0.34 → 0.50（内描边高光，给板子一个"边"）。
+     实测色阶跨度 0.049 → 0.149，与深色主题一样的"有光有影"。
+     ★ 注意：这三档是**刻意**比深色主题大的。深色主题靠的是暗底（0.006~0.04），
+       浅底要抵消同样的"白叠加被稀释"效应，alpha 必须给大 —— 这不是不一致。 */
+  --plate-topline:  rgba(255, 255, 255, 0.22);
+  --plate-inner:    rgba(255, 255, 255, 0.50);
+  /* ★ 卡面（非悬停）也要更立起来：0.06 → 0.13。浅底上 0.06 基本看不见，
+     用户要的是"像主面板一样能看出立体感，但别太突兀"。 */
+  --plate-card:      rgba(255, 255, 255, 0.13);
+  --plate-card-hi:   rgba(255, 255, 255, 0.26);
+  --plate-card-line: rgba(255, 255, 255, 0.24);
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
 }
-/* 紧急：淡红 */
+/* 紧急：珊瑚红（底板由用户指定） */
 body[data-kind="alert"] {
-  /* 紧急窗亮色：同样"降饱和 + 提亮"。
-     原色 #d92d20 = HSL(4, 74%, 49%) → 亮度 62%、饱和 53% → #d2726a。
-     它仍是明确的红（能读出"紧急"），但不再刺眼，与待办窗同一个降饱和系数。 */
-  --plate-bg:    #d2726a;
+  /* 与 alert.css 里同名规则保持一致（两个文件结构重复，改一处就要改另一处）。
+     底板 #E07065 比之前的淡红 #dcc3c2 更深更饱和，对比度约束更紧：
+     正文维持墨字（卡面上 5.25:1）；次级加深到 #340e07；标识色加深到 #4b0c06
+     （原来的 #8f2d10 在这个中红底上只有 2.32:1）。详见 alert.css 那段注释。 */
+  --plate-bg:    #e07065;
   --plate-text:  #0b1320;
-  /* 次级文字：底端 4.73:1 */
-  --plate-text2: #3d1109;
+  --plate-text2: #340e07;
   --plate-line:  rgba(11, 19, 32, 0.22);
   --plate-btn:   rgba(255, 255, 255, 0.40);
   --plate-btn-hi: rgba(255, 255, 255, 0.64);
   --plate-under: rgba(11, 19, 32, 0.10);
-  --plate-fade:  rgba(0, 0, 0, 0.025);
-  /* ★ 呼吸点 / 复选框描边：淡红底上要用**更深的同一色相**，而不是纯墨
-     （纯墨在这块淡红上是 5.6:1，太抢眼，把"紧急"的红压掉了）。 */
-  --alert-mark:  #8f2d10;
-  /* 淡红底板上的受光同样要更白（理由见待办窗的 --plate-topline） */
-  --plate-topline:  rgba(255, 255, 255, 0.08);
-  --plate-inner:    rgba(255, 255, 255, 0.34);
+  /* 珊瑚红更深，受光/压深要更重（理由见 alert.css 的同类注释） */
+  --plate-fade:  rgba(0, 0, 0, 0.12);
+  --alert-mark:  #4b0c06;
+  --plate-topline:  rgba(255, 255, 255, 0.22);
+  --plate-inner:    rgba(255, 255, 255, 0.50);
+  --plate-card:      rgba(255, 255, 255, 0.13);
+  --plate-card-hi:   rgba(255, 255, 255, 0.26);
+  --plate-card-line: rgba(255, 255, 255, 0.24);
+  /* 珊瑚红更深，受光给到 0.18（比待办窗的 0.14 重，理由见 alert.css 的同类注释） */
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
 }
 
 /* ---------------------------------------------------------------- 暗主题 */
@@ -471,6 +495,9 @@ html[data-lg-dark] body {
   --plate-card:      rgba(255, 255, 255, 0.05);
   --plate-card-hi:   rgba(255, 255, 255, 0.12);
   --plate-card-line: rgba(255, 255, 255, 0.09);
+  /* 深底上要用半透明白，否则滚动条是"看不见的黑条" */
+  --plate-scroll:    rgba(255, 255, 255, 0.22);
+  --plate-scroll-hi: rgba(255, 255, 255, 0.38);
 
   /* 未完成：普兰 */
   --plate-bg:    #1b3a5c;
@@ -526,6 +553,11 @@ html[data-lg-dark] body[data-kind="alert"] {
 
 html { background: transparent; }
 body {
+  /* ★ 铺满窗口、纵向 flex：这样 #list 才能拿到"剩余高度"并自己滚动。
+     窗口高度由 Python 的 _calc_height 决定，body 用 100vh 精确贴合它。 */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   font-family: var(--font-ui);
@@ -556,6 +588,73 @@ body {
   -webkit-backdrop-filter: blur(var(--blur-float)) saturate(160%);
   isolation: isolate;
 }
+
+/* ---------------------------------------------------------------- 任务列表（可滚动）
+   ★ 任务条数不再截断：全部渲染进 DOM，超出的部分滚动查看。
+     窗口高度由 Python 决定（最多 6 行的高度），所以这里只需吃掉剩余高度并滚动。
+
+   ★★ 待办窗的 DOM 比紧急窗多一层：<div id="body"><div id="list"></div></div>
+     （alert.html 是 #list 直接挂在 body 下）。所以 flex 链要**两层都写**：
+     真正作为 body 的 flex 子项的是 #body，只给 #list 写 flex 是没用的 ——
+     #body 不受约束就会撑开，里面再怎么写都不会出滚动条。这个坑我踩过一次。
+
+   三个属性缺一不可：
+     min-height: 0    —— flex 子项默认 min-height:auto，不加这个滚动条不会出现；
+     flex: 1 1 auto   —— 占满 .header 之下的全部高度；
+     overflow-y: auto —— 内容超过才出滚动条（不需要时完全不占宽度）。
+   scrollbar-gutter: stable 让滚动条出现/消失时行宽不跳。
+
+   max-height 是**兜底**：等于"6 行 + 上下内边距"的精确高度。
+   flex 那套已经够用，但如果哪天 .header 高度被改坏（我在真机上见过它算成 27px），
+   flex 分配就会失控、20 条任务会把窗口撑破。有这条上限，无论外面怎么变，
+   列表都最多显示 6 行，多出来的必定可滚。
+   ★ 6 × 19.19 = 115.14，与 controller.py 的 PANEL_MAX_ROWS / PANEL_ROW_H 配对。 */
+#body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* ★ 这里**不能加 overflow: hidden**：那会把 #body 的内容盒固定成"分配到的
+     高度"（115px），于是 #list 即使 max-height 更大也只能长到 115px 的
+     内容盒里 —— 6 行需要 115.14 + 9(padding) = 124.14，正好差一行。
+     内层 #list 自己 overflow-y:auto、外层 body 有 overflow:hidden，
+     不会有内容漏出窗口。 */
+  /* 内边距归 #list（见下）。原来 #body 带 padding: 4px 10px 5px，
+     那 9px 会从可用高度里吃掉一整行。紧急窗的 padding 本来就在 #list 上。 */
+  padding: 0;
+}
+#list {
+  position: relative;
+  z-index: 1;
+  padding: 4px 10px 5px;
+  /* ★ 用**确定的高度**而不是 flex + max-height。
+     原因：#body 是 flex 子项，拿到的是"部分式"分配高度（115px），
+     而 6 行内容 + 上下 padding 需要 124.14px（border-box）。
+     flex: 1 1 auto + max-height 只能**收缩**不能**扩张**，所以它永远卡在
+     115px 的内容盒里 —— 6 行只看得见 5 行（差的正是那 9px padding）。
+     给确定高度后，列表精确等于"6 行 + padding"，可见行数就准了。
+     超出的部分由 overflow-y:auto 滚动；窗口总高仍是 Python 算的 159px，
+     多了的 9px 会被外层 body 的 overflow:hidden 吃掉（不与窗口对齐也无妨，
+     因为 body 底色与列表底色相同）。 */
+  flex: 0 0 auto;
+  height: 124.14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+/* 滚动条：细、半透明，符合浮窗的玻璃调性（不用系统那条亮灰粗条）。 */
+#list::-webkit-scrollbar { width: 8px; }
+#list::-webkit-scrollbar-track { background: transparent; }
+#list::-webkit-scrollbar-thumb {
+  background: var(--plate-scroll);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+#list::-webkit-scrollbar-thumb:hover { background: var(--plate-scroll-hi); background-clip: content-box; }
+
 /* 左上角一轮受光：只是质感，幅度刻意很小（大了就是一条白带） */
 body::before {
   content: "";
@@ -583,6 +682,10 @@ body::after {
   position: relative;
   z-index: 1;
   height: 44px;
+  /* ★ 不许被压缩：body 是纵向 flex（为了 #list 能滚动），而 flex 子项默认
+     flex-shrink:1 —— 列表分量一旦超过容器，flex 会**先压 header**，
+     把它从 44px 压成 27px（真机实测过）。标题栏是固定高度，必须锁住。 */
+  flex: 0 0 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -654,8 +757,11 @@ body::after {
 .header button.icon-btn:hover { color: var(--plate-text); }
 
 /* -------------------------------------------------------------------- 任务行 */
-/* 行高 16.19 + margin-bottom 3 与 _calc_height 配对，这一对数字不要动。 */
-#body { position: relative; z-index: 1; padding: 4px 10px 5px; }
+/* 行高 16.19 + margin-bottom 3 与 _calc_height 配对，这一对数字不要动。
+   ★ #body 这里**不再给内边距**：它那层 padding 会从"可见行数"的高度里
+     吃掉 9px（4+5），导致 6 行只能看见 5 行。内边距改由 #list 承担
+     （见上面 #list 的 padding: 4px 10px 5px），视觉完全一致。 */
+#body { position: relative; z-index: 1; }
 
 .item {
   position: relative;

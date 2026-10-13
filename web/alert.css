@@ -360,6 +360,9 @@ body {
   --plate-card:      rgba(255, 255, 255, 0.06);
   --plate-card-hi:   rgba(255, 255, 255, 0.13);
   --plate-card-line: rgba(255, 255, 255, 0.10);
+  /* 滚动条：只在任务超过可见行数时出现（见 #list 的 overflow-y:auto） */
+  --plate-scroll:    rgba(11, 19, 32, 0.22);
+  --plate-scroll-hi: rgba(11, 19, 32, 0.38);
   /* 玻璃面 = 两层（与待办窗同一个值）：受光覆盖整个高度 + 底部单独压深一层。
      紧急窗只有 118px 高，受光若在 76% 就回落，矮窗里只剩很短的段落，看着是平的。 */
   --plate-sheen: linear-gradient(180deg,
@@ -373,35 +376,62 @@ body {
    亮度提到 62%、饱和降到原来的约 0.72 倍 → 淡蓝 #5991e3 / 淡红 #d2726a，
    两个字色都改用墨色。 */
 body {
-  --plate-bg:    #5991e3;
+  /* 待办窗亮色（此块只给非 alert 页面用；alert 页面被下面 body[data-kind] 覆盖）：
+     与 panel.css 同值，见 panel.css 里那段长注释（"更淡 + 更立体"两轮调整）。 */
+  --plate-bg:    #bdcbe0;
   --plate-text:  #0b1320;
   --plate-text2: #0c2740;
   --plate-line:  rgba(11, 19, 32, 0.20);
   --plate-btn:   rgba(255, 255, 255, 0.42);
   --plate-btn-hi: rgba(255, 255, 255, 0.66);
   --plate-under: rgba(11, 19, 32, 0.10);
-  --plate-fade:  rgba(0, 0, 0, 0.025);
+  --plate-fade:  rgba(0, 0, 0, 0.09);
   /* 与待办窗同值：淡底板上标识色必须跟着调（共享 token 那档是给旧底板的） */
-  --float-mark:  #1d4ed8;
+  --float-mark:  #1a45c4;
   --alert-mark:  #8f2d10;
-  /* 淡底板的受光要更白：底板亮、字墨，0.08 的白线叠上去比周围更暗（一条暗线） */
-  --plate-topline:  rgba(255, 255, 255, 0.08);
-  --plate-inner:    rgba(255, 255, 255, 0.34);
+  --plate-topline:  rgba(255, 255, 255, 0.22);
+  --plate-inner:    rgba(255, 255, 255, 0.50);
+  --plate-card:      rgba(255, 255, 255, 0.13);
+  --plate-card-hi:   rgba(255, 255, 255, 0.26);
+  --plate-card-line: rgba(255, 255, 255, 0.24);
+  /* 待办窗受光 0.14（紧急窗那条 0.18 在下面 body[data-kind="alert"] 里） */
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
 }
 body[data-kind="alert"] {
-  --plate-bg:    #d2726a;
+  /* 紧急窗亮色：底板由用户指定 #E07065（偏珊瑚红，比之前的淡红 #dcc3c2 明显更深、
+     更饱和）。它的对比度约束比之前的淡红紧得多，所以下面几项**必须**跟着调：
+       - 正文：这个底上白色只有 3.05:1（不达标），维持墨字；#0b1320 在卡面上 5.25:1 ✓
+       - 次级：#3d1109 换成更深的 #340e07（4.62 → 4.89:1，留出余量）
+       - 标识：#8f2d10 在这个中红底上掉到 2.32:1（不达标），加深到 #4b0c06（4.38:1）
+     ★ 判定必须按"任务卡"那一层算：#plate-card 还叠了 0.13 的白玻璃，
+       文字实际落在比裸板更亮的卡面上。按裸板算会把结论判反（我踩过）。 */
+  --plate-bg:    #e07065;
   --plate-under: rgba(11, 19, 32, 0.10);
-  --plate-fade:  rgba(0, 0, 0, 0.025);
+  /* ★ 受光/压深比待办窗更重（0.18/0.12 vs 0.14/0.09）：
+     这块珊瑚红本身比待办窗的淡蓝更深，同样的白叠加在这里被稀释得更厉害，
+     用同一档会让紧急窗明显"更平"（实测色阶跨度只有待办窗的 65%）。
+     提到这一档后两窗的立体感接近，且对比度仍达标（正文 5.02 / 次级 4.67 / 标识 4.18）。 */
+  --plate-fade:  rgba(0, 0, 0, 0.12);
   --plate-text:  #0b1320;
-  --plate-text2: #3d1109;
+  --plate-text2: #340e07;
   --plate-line:  rgba(11, 19, 32, 0.22);
   --plate-btn:   rgba(255, 255, 255, 0.40);
   --plate-btn-hi: rgba(255, 255, 255, 0.64);
-  /* 呼吸点 / 复选框描边：淡红底上用更深一档的同一色相，不用纯墨（太抢眼） */
-  --alert-mark:  #8f2d10;
-  /* 亮红底板上的受光同样要更白 */
-  --plate-topline:  rgba(255, 255, 255, 0.08);
-  --plate-inner:    rgba(255, 255, 255, 0.34);
+  /* 呼吸点 / 勾选框描边：中红底上必须用**很深的同一色相**才看得清 */
+  --alert-mark:  #4b0c06;
+  --plate-topline:  rgba(255, 255, 255, 0.22);
+  --plate-inner:    rgba(255, 255, 255, 0.50);
+  --plate-card:      rgba(255, 255, 255, 0.13);
+  --plate-card-hi:   rgba(255, 255, 255, 0.26);
+  --plate-card-line: rgba(255, 255, 255, 0.24);
+  /* 紧急窗珊瑚红更深，受光给到 0.18（比待办窗的 0.14 重，理由见 --plate-fade 注释） */
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
 }
 
 /* ---------------------------------------------------------------- 暗主题 */
@@ -420,6 +450,9 @@ html[data-lg-dark] body {
   --plate-card:      rgba(255, 255, 255, 0.05);
   --plate-card-hi:   rgba(255, 255, 255, 0.12);
   --plate-card-line: rgba(255, 255, 255, 0.09);
+  /* 深底上要用半透明白，否则滚动条是"看不见的黑条" */
+  --plate-scroll:    rgba(255, 255, 255, 0.22);
+  --plate-scroll-hi: rgba(255, 255, 255, 0.38);
 
   /* 未完成：普兰 */
   --plate-bg:    #1b3a5c;
@@ -476,6 +509,11 @@ html[data-lg-dark] body[data-kind="alert"] {
 
 html { background: transparent; }
 body {
+  /* ★ 铺满窗口、纵向 flex：让 #list 拿到"剩余高度"并自己滚动。
+     窗口高度由 Python 的 _calc_height 决定，body 用 100vh 精确贴合。 */
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   font-family: var(--font-ui);
@@ -524,6 +562,10 @@ body::after {
   position: relative;
   z-index: 1;
   height: 44px;
+  /* ★ 不许被压缩：body 是纵向 flex（为了 #list 能滚动），而 flex 子项默认
+     flex-shrink:1 —— 列表分量一旦超过容器，flex 会**先压 header**，
+     把它从 44px 压成 27px（真机实测过）。标题栏是固定高度，必须锁住。 */
+  flex: 0 0 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -578,9 +620,38 @@ body::after {
 .header button.icon-btn:hover { color: var(--plate-text); }
 
 /* -------------------------------------------------------------------- 任务行 */
-/* 8 条满行 + "...还有 N 条" 时那一行会落到窗口外：overflow:hidden 与窗口自身
-   的裁切一致 —— 任务行本身永远在窗口内。 */
-#list { position: relative; z-index: 1; padding: 4px 10px 5px; overflow: hidden; }
+/* ★ 任务条数不再截断：全部渲染进 DOM，超出的部分滚动查看。
+   窗口高度由 Python 决定（最多 4 行的高度），这里只需吃掉剩余高度并滚动。
+   三个属性缺一不可：
+     min-height: 0    —— flex 子项默认 min-height:auto，不加这个滚动条不会出现；
+     flex: 1 1 auto   —— 占满 .header 之下的全部高度；
+     overflow-y: auto —— 内容超过才出滚动条。
+   scrollbar-gutter: stable 让滚动条出现/消失时行宽不跳。 */
+#list {
+  position: relative;
+  z-index: 1;
+  padding: 4px 10px 5px;
+  /* ★ 用**确定的高度**而不是 flex + max-height（与待办窗同一做法）：
+     flex 只能收缩不能扩张，父级部分式分配会把列表卡小，导致少显示一行。
+     高度 = 4 行内容 + 上下 padding（border-box）：
+     4 × 19.19 = 76.76，加上 4 + 5 = 9 → 85.76。
+     ★ 与 controller.py 的 ALERT_MAX_ROWS / ALERT_ROW_H / ALERT_LIST_PAD 配对。 */
+  flex: 0 0 auto;
+  height: 85.76px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+/* 滚动条：细、半透明，符合浮窗的玻璃调性 */
+#list::-webkit-scrollbar { width: 8px; }
+#list::-webkit-scrollbar-track { background: transparent; }
+#list::-webkit-scrollbar-thumb {
+  background: var(--plate-scroll);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+#list::-webkit-scrollbar-thumb:hover { background: var(--plate-scroll-hi); background-clip: content-box; }
 
 .item {
   position: relative;

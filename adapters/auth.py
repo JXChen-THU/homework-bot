@@ -134,22 +134,45 @@ def login_url(site):
             or "")
 
 
-def wait_for_ready(page, condition, *, timeout_ms=15000, interval_ms=200, what=""):
+def site_urls_of(site):
+    """站点自己的地址（用来把"候选登录页 == 站点自身地址"排除掉）。
+
+    为什么必须有这个：`login_url()` 在没配 `login_url`、类型也没默认值时会
+    **回退成站点自己的 url**（清华 OJ 就是这种）。那种情况下"登录页"和
+    "内容页"是同一个地址，`page_on_login_page` 会把每一次正常抓取都判成
+    "需要登录" —— 每次刷新都被提前中断、还触发一次白跑的重登。
+    """
+    return [u for u in (site.get("url"), site.get("base_url")) if u]
+
+
+def wait_for_ready(page, condition, *, timeout_ms=15000, interval_ms=200, what="",
+                   login_urls=None, site_hosts=(), site_urls=()):
     """轮询等待某个条件成立就立刻继续（替代固定 sleep 和 networkidle）。
 
     为什么不用 networkidle：它要求网络彻底安静 500ms，而很多学习平台都有
     轮询/埋点请求，会一直等到超时。实测网络学堂在 domcontentloaded 后 1.3 秒
     就能拿到登录态和 CSRF，但 networkidle 还要再等 4 秒。
 
+    ★ `login_urls`：给了就在**每次轮询时**顺手看一眼当前 URL，只要落在登录页上
+    就立刻结束等待（返回 False）。这是「会话过期」这条路径上最值钱的一步：
+    页面早就跳到登录页了，而我们要等的东西（作业列表）永远不会出现，
+    于是只能把 timeout_ms 睡满。实测过期会话从 15 秒降到 0.1~0.3 秒。
+    反过来，**只有在确认是登录页时才提前结束**，"页面只是慢"不会被误判 ——
+    这正是敢把预检超时压到 SESSION_PROBE_MS 的前提。
+
     condition(page) 返回真值即视为就绪。返回是否在超时前就绪。
     """
     deadline = time.time() + timeout_ms / 1000.0
-    while time.time() < deadline:
+    while True:
         try:
             if condition(page):
                 return True
         except Exception:
             pass
+        if login_urls and page_on_login_page(page, login_urls, site_hosts, site_urls):
+            return False
+        if time.time() >= deadline:
+            break
         try:
             page.wait_for_timeout(interval_ms)
         except Exception:
@@ -159,8 +182,163 @@ def wait_for_ready(page, condition, *, timeout_ms=15000, interval_ms=200, what="
     return False
 
 
-def _fill_first(page, selectors, value, timeout=8000):
+# ============================================================
+# 抓取期的两个超时（会话预检 / 数据就绪）
+#
+# 为什么要把它们分开、而且预检可以压到 1 秒：
+#   「这个会话还能不能用」这件事本身是**免费**的 —— 会话有效时页面/接口
+#   几百毫秒内就给出内容；会话失效时浏览器是**被直接跳到登录页**的，
+#   作业列表永远不会出现。实测（本机，无头请求）：
+#       learn 首页 → 0.10s 且最终 URL 已经是 /f/login
+#       清华 OJ 作业页 0.06s / U校园 0.08s / 数你最灵 0.04s
+#   也就是说"等 15 秒"里的 15 秒全是干等：等一个永远不来的条件。
+#
+#   敢压到 1 秒的前提是 wait_for_ready(login_urls=...) 的**提前结束**：
+#   一旦确认页面在登录页上就立刻返回，不睡满；而"页面只是慢"不会被误判，
+#   因为只有"确实在登录页"才提前结束。
+#
+# 数据就看 session 有效时的内容就绪，仍给 DATA_READY_MS：
+#   学习平台的作业接口偶尔要几秒（尤其网络学堂要逐门课拉），
+#   抢在 1 秒丢掉会让一次本来能成功的抓取变成"需要登录"，
+#   进而触发一次白跑的重登 —— 那比多等几秒更慢。
+# ============================================================
+SESSION_PROBE_MS = 1000
+DATA_READY_MS = 15000
+
+
+def timeout_detail(what, timed_out=True):
+    """"等了但没就绪"时给用户看的说明（5 个适配器共用一份口径）。
+
+    为什么必须说两头：这种超时**不能确定**会话是不是失效了 ——
+      - 会话真失效时，绝大多数平台会把页面跳到登录页（那条路已经被
+        wait_for_ready 的早退当场抓住，走的是 LoginRequiredError）；
+      - 剩下这种"没跳到登录页、只是迟迟没内容"的情况，既可能是网络/平台慢，
+        也**可能**是某个 SPA 静默登出了（不给任何失效信号）。
+    所以这里既不说"你要重新登录"（会把慢站点引去做一次白重登），
+    也不说"没问题"（万一是真失效，用户就没有出口）。给出两种可能，
+    并把"点登录"作为可选的下一步。
+    """
+    what = what or "页面"
+    return (f"{what} 在 {DATA_READY_MS // 1000} 秒内没有返回内容。"
+            "可能是网络或平台较慢，也可能登录状态已失效 —— "
+            "如果点「刷新任务」重试仍不行，请点「登录」重新登录一次。")
+
+
+
+# "认证域名/路径"的特征词。凡是 URL 里带这些字样且**不属于已配置的站点主机**，
+# 就认为当前页面在认证流程里。
+# 为什么可以只看整个 URL：站点自己的内容页不会出现 /sso、/auth/login、
+# passport、cas 这类路径段；而真正的 SSO 页正是靠这些字样识别的。
+_AUTH_URL_HINTS = ("sso", "passport", "cas", "/auth/login", "id.tsinghua.edu.cn")
+
+
+def _split_url(u):
+    """把 URL 拆成 (host, path)。没有主机名的（例如 "id.tsinghua.edu.cn"）按主机名处理。"""
+    u = str(u or "").strip().lower()
+    if not u:
+        return "", ""
+    if "://" in u:
+        u = u.split("://", 1)[1]
+    u = u.split("?", 1)[0].split("#", 1)[0]
+    if "/" in u:
+        host, path = u.split("/", 1)
+        return host, "/" + path
+    return u, ""
+
+
+def page_on_login_page(page, login_urls, site_hosts=(), site_urls=()):
+    """当前页面是否落在登录页/认证页上。
+
+    判定只看 **URL**，不看正文 —— 正文里的"登录""课程"字样在 SSO 页面上会
+    互相污染，本仓库已经在这上面踩过坑。这个函数在本仓库里踩了三次，
+    每次都是把**正常内容页**判成了登录页（那会让每一次抓取都被提前中断）：
+
+      1. 只看主机名 → `learn.tsinghua.edu.cn` 下所有页面（含作业列表）全中；
+      2. 主机名与路径**分开**匹配 → `uai.unipus.cn/portal/sso/login` 的
+         路径段从第一个 `/` 起算，`/portal` 命中了 `uai.unipus.cn/portal`；
+      3. **候选登录页本身等于站点自己的地址** → `login_url(site)` 在没有
+         `login_url` / 没有类型默认值时会回退成 `site["url"]`
+         （清华 OJ 就是这样），于是"作业页等于登录页"，永远判成需要登录。
+         这一条由 `site_urls` 兜底：等于站点自己地址的候选一律不算登录页。
+
+    ★ 两个档必须分清：
+      - 配置里的登录页：与内容页**同主机**，必须"主机 + 路径"落在同一段 URL 上；
+      - 认证流程页（`id.tsinghua.edu.cn`、URL 里带 /sso、/auth/login、passport、cas）：
+        整站/整段都是认证，按 URL 特征认；`site_hosts` 里声明过的站点主机不参与
+        （避免某个平台把自己的内容页放在看起来像认证的路径下被误伤）。
+
+    调用方仍会再做一次正式判定（各自的 _is_logged_in / _on_logged_in_page），
+    所以这里宁可宽一点：多提前结束一次，代价只是快一点，不会改变结论。
+    """
+    try:
+        url = (page.url or "")
+    except Exception:
+        return False
+    if not url:
+        return False
+    low = url.lower()
+
+    for u in login_urls:
+        host, path = _split_url(u)
+        if not host:
+            continue
+        # 候选就是站点自己的地址 → 它不是登录页
+        if _same_location(u, site_urls):
+            continue
+        # 档 1：配置里的登录页 → 主机和路径必须落在同一段 URL 上
+        if path and len(path) > 1:
+            start = low.find(host)
+            if start >= 0 and path in low[start + len(host):]:
+                return True
+        # 档 2：认证流程页 → URL 特征命中，且不在站点自己的主机上
+        host_in_site = any(h and h in low for h in site_hosts)
+        if not host_in_site and any(h in low for h in _AUTH_URL_HINTS):
+            return True
+    return False
+
+
+def _same_location(candidate, others):
+    """candidate 是否与 others 中的任意一条指向同一个位置（忽略 scheme / 尾斜杠）。"""
+    ch, cp = _split_url(candidate)
+    if not ch:
+        return False
+    ckey = (ch, cp.rstrip("/"))
+    for o in others or ():
+        oh, op = _split_url(o)
+        if oh and (oh, op.rstrip("/")) == ckey:
+            return True
+    return False
+
     """按顺序尝试选择器，填第一个存在的可见元素。返回用到的选择器或 None。"""
+    for sel in selectors:
+        if not sel:
+            continue
+        try:
+            loc = page.locator(sel).first
+            if loc.count() == 0:
+                continue
+            try:
+                if not loc.is_visible():
+                    continue
+            except Exception:
+                pass
+            loc.fill(value, timeout=timeout)
+            return sel
+        except Exception:
+            continue
+    return None
+
+
+def _fill_first(page, selectors, value, timeout=8000):
+    """按顺序尝试选择器，填第一个存在的可见元素。返回用到的选择器或 None。
+
+    ★ 这个函数曾经从工作区里消失（定义被删、8 处调用还在），后果是
+      silent_login() 一进到"填账号密码"就抛 NameError，被外层 except 吞成
+      reason="exception"，于是**所有平台的静默登录全部失效**，用户看到的是
+      "改对了密码也登不上"。从 git HEAD 恢复，实现与 _click_first 对称。
+      改这个文件时请留意：调用点有 8 处，缺了定义不会有语法错误，
+      只会在运行到那一步时才炸。
+    """
     for sel in selectors:
         if not sel:
             continue

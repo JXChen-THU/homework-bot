@@ -2,10 +2,18 @@
 import re
 from datetime import datetime
 
-# 红窗（紧急浮窗）只保留"最近过期"的任务：更早的历史遗留降到白窗，
-# 否则一条几个月前就该交的作业会永久占据红窗前几行，把真正 24 小时内
-# 到期的任务挤下去。注意是**降级到白窗**，不是从界面删除。
-URGENT_PAST_GRACE_HOURS = 72.0
+# 红窗（紧急浮窗）的判定：**不设过期下限**。
+#
+# 历史：曾经有过一个 URGENT_PAST_GRACE_HOURS = 72 的下限，"过期超过 3 天的
+# 降级到白窗"。加它的理由是"一条几个月前该交的作业会永久占据红窗前几行，
+# 把真正 24 小时内到期的挤下去"。
+#
+# 但用户明确要求：**只要不到 24 小时，过期多久都算紧急**。
+# 所以下限已移除 —— 只要未完成且 end 能解析，hours_left <= 24 就进红窗，
+# 包括已经过期任意久的任务。
+#
+# 注意副作用（用户已知悉并接受）：列表按 hours_left 升序排，
+# 过期越久越靠前，所以最陈旧的作业会排在红窗最上面几行。
 URGENT_HORIZON_HOURS = 24.0
 
 _LOOSE_RE = re.compile(
@@ -106,7 +114,10 @@ def parse_time(value):
 
 
 def compute_urgent(items, now=None):
-    """紧急列表：已过期（在宽限期内）到 24 小时内到期，按剩余时间升序。"""
+    """紧急列表：24 小时内到期 + 所有已过期的未完成任务，按剩余时间升序。
+
+    没有过期下限 —— 过期多久都算紧急（见文件头的说明）。
+    """
     now = now or datetime.now()
     result = []
     for item in items:
@@ -116,7 +127,7 @@ def compute_urgent(items, now=None):
         if due is None:
             continue
         hours_left = (due - now).total_seconds() / 3600
-        if -URGENT_PAST_GRACE_HOURS <= hours_left <= URGENT_HORIZON_HOURS:
+        if hours_left <= URGENT_HORIZON_HOURS:
             result.append({"uid": item["uid"], "title": item["title"], "hours_left": hours_left})
     # 次级键用 uid：截止时间相同的任务每次刷新都保持同一顺序，列表不会自己跳
     return sorted(result, key=lambda item: (item["hours_left"], item["uid"]))

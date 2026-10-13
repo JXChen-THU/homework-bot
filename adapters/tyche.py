@@ -84,7 +84,9 @@ def fetch_homeworks(site, base_dir):
     if not os.path.exists(session):
         raise LoginRequiredError(site["id"], site["name"])
 
-    from .auth import browser_session, wait_for_ready
+    from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
+                       page_on_login_page, site_urls_of,
+                       SESSION_PROBE_MS, DATA_READY_MS)
 
     with browser_session() as browser:
         # 关键：http_credentials 自动填 Basic Auth 弹窗。
@@ -102,10 +104,30 @@ def fetch_homeworks(site, base_dir):
 
             # 轮询 ShowGroup 接口：一旦能拿到数据就立刻继续，
             # 比等 networkidle 快，也顺便完成了登录判定。
-            wait_for_ready(
-                page,
-                lambda pg: _is_success(_fetch_group(pg, site["gid"])),
-                timeout_ms=15000, what="Tyche 作业接口")
+            # 短预检（1 秒）：能返回就立刻继续；被跳到登录页就当场结束等待，
+            # 不再白睡 15 秒。
+            def _ok(pg):
+                return _is_success(_fetch_group(pg, site["gid"]))
+
+            logins = [login_url(site)]
+            got = wait_for_ready(
+                page, _ok,
+                timeout_ms=SESSION_PROBE_MS, what="Tyche 作业接口（会话预检）",
+                login_urls=logins, site_urls=site_urls_of(site))
+            if not got:
+                # 预检没成功、也没被跳到登录页 → 可能只是接口慢，再给一次数据
+                # 时限。无论走哪条，下面的正式取值与状态码分流都不变。
+                got = wait_for_ready(
+                    page, _ok,
+                    timeout_ms=DATA_READY_MS, what="Tyche 作业接口（数据）",
+                    login_urls=logins, site_urls=site_urls_of(site))
+
+            # ★ 两段等待之后一定要显式再判一次登录页：接口 401/403 是硬信号，
+            #   但"接口一直没成功"时唯一能确定失效的依据就是 URL —— 少了这一步，
+            #   会话失效会被误报成"抓取超时"，用户就拿不到重新登录的入口了。
+            if page_on_login_page(page, logins, site_urls=site_urls_of(site)):
+                raise LoginRequiredError(site["id"], site["name"])
+
             data = _fetch_group(page, site["gid"])
 
             if not _is_success(data):
@@ -121,7 +143,12 @@ def fetch_homeworks(site, base_dir):
                     raise FetchFailedError(
                         site["id"], site["name"],
                         f"作业接口请求失败：{data.get('message') or '未知网络错误'}")
-                # parse_error / 非成功数据：多半是被重定向到登录页，按未登录处理
+                # parse_error / 非成功数据：**不直接当未登录**。
+                # 两段轮询都超时、又没有 401/403 这种明确失效信号时，
+                # 按抓取超时处理 —— 否则"接口只是慢"也会被拉去做一次白跑的静默重登。
+                if not got:
+                    raise FetchFailedError(site["id"], site["name"],
+                                           timeout_detail("Tyche 作业接口"))
                 raise LoginRequiredError(site["id"], site["name"])
 
             return _extract(data, site)

@@ -163,7 +163,56 @@ const LOGIN_HINTS = {
 // 这个安全动作，不会被静默当成填凭据。
 const CRED_DIALOG_REASONS = ['bad_credentials', 'no_credentials'];
 
-function renderBanners(errors, needLogin, startup) {
+// 首次运行引导（后端 gate，见 core.controller.get_homeworks 的启动闸门）
+let gatePending = false;
+
+// 单个站点那一行（按钮 + 话术 + 可选诊断）。两处渲染共用这一份：
+// 「首次运行引导」里给的是"去填账密"，「需要登录」提示条里给的是"去登录"，
+// 但按钮文案/话术/落点属性完全一样 —— 各写一遍早晚会出现"改了这边忘了那边"。
+function loginRowHtml(s) {
+  const hint = LOGIN_HINTS[s.reason] || LOGIN_HINTS.default;
+  return '<div class="login-row">'
+    + `<button data-login-site="${escapeHtml(s.site_id)}" data-reason="${escapeHtml(s.reason || '')}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
+    + `<span class="login-hint">${hint.text}</span>`
+    + '</div>'
+    // detail 是可选的诊断摘要，只有后端给了才多渲染一行小字。
+    // 放在 .login-row 外面：那一行是 flex 横排，塞进去会和按钮挤在同一行。
+    + (s.detail ? `<div class="need-login-detail">${escapeHtml(s.detail)}</div>` : '');
+}
+
+function needLoginRowsHtml(needLogin) {
+  return (needLogin || []).map(loginRowHtml).join('');
+}
+
+// 把 need_login 那一段渲染出来（普通路径用）。
+function needLoginHtml(needLogin) {
+  if (!needLogin || !needLogin.length) return '';
+  return '<div class="banner warn"><div>需要登录以下站点：</div>'
+    + needLoginRowsHtml(needLogin) + '</div>';
+}
+
+// 首次运行引导：一个会话文件都没有时不抓取，先让用户填账号密码。
+// 这里刻意把「为什么没有任务」说清楚 —— 否则用户看到空列表会以为程序坏了。
+function gateHtml(gate, needLogin) {
+  const msg = (gate && gate.message)
+    || '这是第一次运行：还没有任何登录状态，请先在「设置」里填好账号密码。';
+  const rows = needLoginRowsHtml(needLogin);
+
+  return '<div class="banner setup">'
+    + `<div class="setup-title">${escapeHtml(msg)}</div>`
+    + '<div class="setup-steps">'
+    + '<div>① 点下面任一「填账号密码」，把要用的站点填好（雨课堂只能扫码，先不用管）。</div>'
+    + '<div>② 填完会自动开始抓取；也可以随时点右上角「刷新任务」。</div>'
+    + '<div>③ 只想手动记作业的话，用「添加任务」即可，不必登录任何站点。</div>'
+    + '</div>'
+    + (rows ? '<div class="setup-sites"><div class="setup-sub">要抓取的站点：</div>' + rows + '</div>' : '')
+    + '<div class="setup-actions">'
+    + '<button class="setup-open-settings" data-open-settings="1">打开设置</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function renderBanners(errors, needLogin, startup, gate) {
   let html = '';
 
   // 启动提示（例如数据目录不可写、已静默回退到 %LOCALAPPDATA%）。
@@ -178,20 +227,10 @@ function renderBanners(errors, needLogin, startup) {
     });
   }
 
-  if (needLogin && needLogin.length) {
-    html += '<div class="banner warn"><div>需要登录以下站点：</div>';
-    needLogin.forEach(s => {
-      const hint = LOGIN_HINTS[s.reason] || LOGIN_HINTS.default;
-      // data-reason 决定按钮点下去该做什么：见下面点击处理里的白名单
-      html += '<div class="login-row">'
-        + `<button data-login-site="${escapeHtml(s.site_id)}" data-reason="${escapeHtml(s.reason || '')}">${hint.btn} ${escapeHtml(s.site_name)}</button>`
-        + `<span class="login-hint">${hint.text}</span>`
-        + '</div>'
-        // detail 是可选的诊断摘要，只有后端给了才多渲染一行小字。
-        // 放在 .login-row 外面：那一行是 flex 横排，塞进去会和按钮挤在同一行。
-        + (s.detail ? `<div class="need-login-detail">${escapeHtml(s.detail)}</div>` : '');
-    });
-    html += '</div>';
+  if (gate && gate.skipped) {
+    html += gateHtml(gate, needLogin);
+  } else {
+    html += needLoginHtml(needLogin);
   }
 
   if (errors && errors.length) {
@@ -203,6 +242,10 @@ function renderBanners(errors, needLogin, startup) {
   }
 
   banners.innerHTML = html;
+
+  banners.querySelectorAll('[data-open-settings]').forEach(btn => {
+    btn.addEventListener('click', () => openSettings());
+  });
 
   banners.querySelectorAll('[data-login-site]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -275,10 +318,21 @@ function render() {
 
   if (!shown.length) {
     if (currentTab === 'todo') {
-      content.innerHTML = `
-        <div class="empty">
-          <div class="msg">所有任务都已完成，太棒了！</div>
-        </div>`;
+      if (gatePending) {
+        // 首次运行：这里"空"是因为还没有登录状态，不是"任务都做完了"。
+        // 用绿色那句「太棒了」会把用户误导成"没事可做"。
+        content.innerHTML = `
+          <div class="empty setup">
+            <div class="msg">还没有登录任何站点</div>
+            <div class="sub">在上面的引导里填好账号密码，或点「添加任务」手动记一条作业。</div>
+            <div class="sub">填完会自动开始抓取。</div>
+          </div>`;
+      } else {
+        content.innerHTML = `
+          <div class="empty">
+            <div class="msg">所有任务都已完成，太棒了！</div>
+          </div>`;
+      }
     } else {
       content.innerHTML = `<div class="empty">还没有已完成的任务</div>`;
     }
@@ -403,12 +457,14 @@ async function load() {
   showProgress();
 
   try {
-    // get_homeworks 返回 {items, errors, need_login, startup}，没有 error 字段；
+    // get_homeworks 返回 {items, errors, need_login, startup, gate}，没有 error 字段；
     // 抓取失败会走 catch（pywebview 把后端异常变成 rejected promise），
-    // 单个站点的问题在 res.errors 里，启动期提示（如数据目录回退）在 res.startup 里
+    // 单个站点的问题在 res.errors 里，启动期提示（如数据目录回退）在 res.startup 里。
+    // gate 出现 = 首次运行：后端没去抓作业，先引导用户填账号密码。
     const res = await window.pywebview.api.get_homeworks();
     items = res.items || [];
-    renderBanners(res.errors || [], res.need_login || [], res.startup || []);
+    gatePending = !!(res.gate && res.gate.skipped);
+    renderBanners(res.errors || [], res.need_login || [], res.startup || [], res.gate || null);
     render();
   } catch (e) {
     banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
@@ -791,6 +847,8 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
     return;
   }
   credBg.classList.remove('open');
+  // 凭据存好了，首次运行的引导状态随之作废（下一次 load() 会重新按后端结果判定）
+  gatePending = false;
   await refreshSitesPanel();
   settingsForceRefresh = true;
   // 从顶部提示条点进来时设置面板本就没打开，没人会去关面板触发刷新，

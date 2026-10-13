@@ -2,7 +2,10 @@
 const kind = document.body.dataset.kind;
 const isAlert = kind === 'alert';
 const api = () => window.pywebview.api;
-const listLimit = isAlert ? 8 : 12;
+/* ★ 不再有 listLimit：任务条数不再截断，全部渲染进 DOM，超出的部分靠 #list
+   滚动查看（见 panel.css / alert.css 的 #list）。
+   窗口高度上限仍由 Python 的 _calc_height 决定（紧急 4 行 / 待办 6 行的高度），
+   所以"不限条数"不会让窗口无限长高。 */
 
 /* ------------------------------------------------------------------ 主题兜底
    主题解析的正主是 head 里的 theme-boot.js（首帧前就定下来，避免闪色）。
@@ -101,7 +104,7 @@ function update(items) {
   if (!items || !items.length) { list.innerHTML = ''; return; }
 
   let html = '';
-  items.slice(0, listLimit).forEach(item => {
+  items.forEach(item => {
     const remaining = formatRemaining(item.hours_left);
     const detail = isAlert
       ? `<span class="time">${remaining}</span>`
@@ -111,9 +114,6 @@ function update(items) {
       <span class="title">${escapeHtml(item.title)}</span>${detail}
     </div>`;
   });
-  if (items.length > listLimit) {
-    html += `<div class="more">...还有 ${items.length - listLimit} 条</div>`;
-  }
   list.innerHTML = html;
   list.querySelectorAll('input[type=checkbox]').forEach(checkbox => {
     checkbox.addEventListener('change', async event => {

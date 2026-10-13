@@ -418,16 +418,41 @@ def _write_config_sites(sites):
 
 
 STARTUP_MODE_KEY = "startup_mode"
-STARTUP_MODE_DEFAULT = "silent"
+# 出厂默认：**首次启动直接显示界面**。
+# 老默认值是 silent，后果是「第一次运行 exe 什么都不出现」——
+# 用户根本不知道程序已经在跑，只能反复双击。静默是一个应当由用户
+# 主动做出的选择，不能替一个还没做过选择的用户预先选上。
+# 老用户（配置里没有这个键）由 _legacy_startup_mode 继续按 silent 处理，
+# 升级不会改变他们已有的行为。
+STARTUP_MODE_DEFAULT = "visible"
+
+
+def _legacy_startup_mode():
+    """sites.yaml 里没有 startup_mode 时的兜底值。
+
+    分两种人：
+      - 老用户：data/ 里已经有会话文件，说明程序在他机器上正常用过。
+        沿用老默认 silent，升级不改变既有行为。
+      - 全新的机器：一个会话文件都没有，他从未做过「静默/显示」这个选择。
+        用 visible —— 否则首次运行什么都不出现（就是"等了很久没反应"）。
+    """
+    try:
+        if data_file_present():
+            return "silent"
+    except Exception:
+        pass
+    return STARTUP_MODE_DEFAULT
 
 
 def load_startup_mode():
-    """启动行为：'silent'（静默，默认）或 'visible'（直接显示界面）。
+    """启动行为：'silent'（静默）或 'visible'（直接显示界面）。
 
-    老用户的 sites.yaml 里没有这个键 —— 用默认值兜底，不要报错。
+    sites.yaml 里没有这个键时走 _legacy_startup_mode()，不要报错。
     """
-    mode = _read_config().get(STARTUP_MODE_KEY, STARTUP_MODE_DEFAULT)
-    return mode if mode in ("silent", "visible") else STARTUP_MODE_DEFAULT
+    mode = _read_config().get(STARTUP_MODE_KEY)
+    if mode in ("silent", "visible"):
+        return mode
+    return _legacy_startup_mode()
 
 
 def save_startup_mode(mode):
@@ -440,6 +465,167 @@ def save_startup_mode(mode):
         return False, f"拒绝写入（读不到现有配置，写了会丢数据）：{e}"
     config[STARTUP_MODE_KEY] = mode
     return _write_config(config)
+
+
+# ============================================================
+# 启动闸门：一个会话文件都没有的机器上，不要跑那一轮注定失败的抓取
+#
+# 为什么要有这一层（实测的"exe 等太久"的根因）：
+#   首次运行（或换了一台干净的机器）时，data/ 里没有任何 *_session.json、
+#   sites.yaml 里的账号密码也还是空的。fetch_all() 却照样会：
+#     1) wait_for_network(timeout=120) —— 没网/网络慢时白等最多 120 秒；
+#     2) 为每个启用站点拉起一个 Playwright 浏览器去"抓作业"，
+#        每个站点都要等登录页超时才放弃（数秒到数十秒）。
+#   两件事的结果必然都是"需要登录"，用户看到的就是"双击 exe 之后很久
+#   什么都不发生"。
+#
+# 判定口径（与用户确认过的 A 口径）：
+#   「既没有任何可用的会话文件，也没有任何站点填了可用账号密码」
+#   → 本轮不发任何网络请求、不启动浏览器，直接让界面出来，
+#     并告诉用户去「设置 → 填账号密码」。
+#   只要还有任意一个站点存在会话文件、或填了能解密出来的账号密码
+#   （下次可以静默登录），就照原来的流程正常抓取。
+# ============================================================
+def data_file_present():
+    """data/ 下是否有会话文件（登录状态）。
+
+    只看存在性、严格不看大小：0 字节的会话文件同样是"用户已经做过一次
+    登录"的痕迹，按有数据处理 —— 让正常流程去抓、去自愈（删坏文件重登），
+    比在这里替他决定"你没有数据"更安全。
+    """
+    try:
+        with os.scandir(DATA_DIR) as it:
+            for entry in it:
+                name = entry.name
+                if name.endswith("_session.json") and entry.is_file():
+                    return True
+    except Exception:
+        # 目录不存在（首次运行）或读不了 → 当作没有数据文件
+        pass
+    try:
+        # 配置里可以把会话文件名写成别的（site["session"]），按实际名字兜一遍
+        for site in load_sites():
+            name = site.get("session")
+            if not name:
+                continue
+            try:
+                if os.path.isfile(os.path.join(DATA_DIR, name)):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
+def _enabled_sites():
+    """启用中的站点；配置读不出来时返回空表（由上层按配置错误处理）。"""
+    try:
+        return load_sites()
+    except Exception:
+        return []
+
+
+def _site_has_usable_session(site):
+    """该站点是否已有一份会话文件（含配置里自定义的文件名）。"""
+    try:
+        return os.path.isfile(_session_file(site))
+    except Exception:
+        return False
+
+
+def _site_has_credentials(site):
+    """该站点是否填了能解密出来的账号密码（下次可静默登录）。
+
+    返回值是**三态**：True / False / None（判断不出来，例如 adapters.auth
+    导入失败）。None 必须被当成"可能有"：`has_credentials` 一旦整体抛异常，
+    所有站点都会看起来"没填账密"，闸门就会短路掉一轮本该执行的抓取。
+    宁可少省一次时间，也不能把用户的抓取吞掉。
+    """
+    try:
+        from adapters.auth import has_credentials
+        return bool(has_credentials(site))
+    except Exception as e:
+        print(f"[startup] 判断 {site.get('id')} 是否已填账密失败：{type(e).__name__}: {e}")
+        return None
+
+
+def _site_credentials_broken(site):
+    """账号密码填了但解不开（换了电脑 / Windows 账户）→ 要提示重填。"""
+    try:
+        from adapters.auth import credentials_broken
+        return bool(credentials_broken(site))
+    except Exception:
+        return False
+
+
+def startup_gate():
+    """启动闸门判定。
+
+    返回：
+        {
+          "skip": bool,        # True = 本轮不发请求、立即把界面显示出来
+          "sites": [ {site_id, site_name, reason, has_credentials,
+                      credentials_broken}, ... ],   # 需要登录的站点（skip 时才有）
+        }
+
+    任何一步出问题都返回 {"skip": False}：这是"少做一次网络请求"的优化，
+    绝不能因为它自己出错就拦掉正常的抓取。配置损坏（config_error）时同样不拦，
+    交给 fetch_all() 报"配置坏了"，否则用户会看到"没有任务"的假象。
+    """
+    result = {"skip": False, "sites": []}
+    try:
+        try:
+            if config_error():
+                return result
+        except Exception:
+            pass
+
+        sites = _enabled_sites()
+        if not sites:
+            # 没有启用中的站点（含"配置读不出来"的情况）：本来也抓不到东西，
+            # 没有什么可跳过的 —— 交给 fetch_all() 去报"配置坏了"
+            return result
+
+        pending = []
+        for site in sites:
+            if _site_has_usable_session(site):
+                # 有登录状态 → 按正常流程抓
+                return result
+            has_cred = _site_has_credentials(site)
+            if has_cred is None:
+                # 判断不出来就当作可能有：见 _site_has_credentials 的说明
+                print(f"[startup] {site.get('id')} 的账密状态无法判断，按正常流程抓取")
+                return result
+            if has_cred:
+                # 填了下次能静默登录的账密 → 按正常流程抓
+                return result
+            pending.append(site)
+
+        for site in pending:
+            stype = site.get("type")
+            broken = _site_credentials_broken(site)
+            if not supports_silent_login(stype):
+                # 只能扫码/人工登录的平台（雨课堂）：给扫码话术
+                reason = "qr_code" if stype == "yuketang" else "no_adapter_support"
+            elif broken:
+                # 填过但解不开：必须引导重填，否则用户会一直卡在"需要登录"
+                reason = "bad_credentials"
+            else:
+                reason = "no_credentials"
+            result["sites"].append({
+                "site_id": site.get("id"),
+                "site_name": site.get("name", site.get("id")),
+                "reason": reason,
+                "has_credentials": False,
+                "credentials_broken": broken,
+            })
+
+        result["skip"] = True
+        return result
+    except Exception as e:
+        print(f"[startup] 启动闸门判定失败，按正常流程继续：{type(e).__name__}: {e}")
+        return {"skip": False, "sites": []}
 
 
 

@@ -1155,6 +1155,53 @@ html[data-lg-dark] .banner.err {
   background: linear-gradient(96deg, rgba(200, 74, 60, 0.36) 0%, var(--banner-end) 100%);
 }
 
+/* ------------------------------------------------- 首次运行引导条 .banner.setup
+   命中启动闸门（一个会话文件都没有、也没填账密）时出现：后端这一轮不抓取，
+   先引导用户填账号密码。用 accent 色而不是 warn/err —— 它不是故障，
+   是"第一次用需要先配置"。 */
+.banner.setup {
+  --banner-end: rgba(255, 255, 255, 0.04);
+  background: linear-gradient(96deg, var(--accent-wash) 0%, var(--banner-end) 100%);
+  color: var(--ink);
+  border-color: var(--accent-line);
+}
+html[data-lg-dark] .banner.setup {
+  --banner-end: rgba(12, 18, 32, 0.10);
+}
+.banner.setup .setup-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--accent-ink);
+}
+.banner.setup .setup-steps {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+.banner.setup .setup-sites {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+.banner.setup .setup-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+/* 六个站点的按钮竖着排：横排会挤成两行、每个按钮都短到看不清站点名 */
+.banner.setup .setup-sites .login-row { margin-top: 4px; }
+.banner.setup .setup-sites .login-row button { min-width: 132px; text-align: left; }
+.banner.setup .setup-actions { margin-top: 10px; }
+.banner.setup .setup-actions .setup-open-settings {
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+.banner.setup .setup-actions .setup-open-settings:hover {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
 /* -------------------------------------------------------------------- 标签条 */
 /* 原来是"底部 2px 渐变线"收尾，现在收进一块玻璃壳里：底部一条细线 + 选中胶囊。 */
 .tabs {
@@ -1460,6 +1507,11 @@ html[data-lg-dark] .empty.failed .msg { color: var(--danger); }
   font-size: 13px;
   color: var(--ink-3);
 }
+/* 首次运行的空态（gatePending）：这里的"空"不是"任务都做完了"，
+   所以不用 .empty 默认的绿色 msg —— 那是完成语义，会让人以为没事可做。 */
+.empty.setup .msg { color: var(--ink-2); font-size: 15.5px; }
+html[data-lg-dark] .empty.setup .msg { color: var(--ink-2); }
+.empty.setup .sub { max-width: 420px; margin-left: auto; margin-right: auto; line-height: 1.7; }
 
 /* ---------------------------------------------------------------------- 弹窗 */
 /* 遮罩刻意很淡：它的作用是"把注意力收到弹窗上"，不是把底版压暗。
