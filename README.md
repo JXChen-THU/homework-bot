@@ -83,8 +83,8 @@ v26.5 重做了整套界面样式，有三件事值得知道：
 
 解压程序文件夹后运行 `HomeworkTasks.exe`。首次启动会根据 `sites.yaml.template` 生成 `sites.yaml`，并创建 `data/` 运行数据目录。首次使用时，在设置中配置需要的站点并登录。
 
-打包产物里只有程序本身（页面、样式、脚本、字体、平台适配器、浏览器驱动），
-**不包含**你的 `sites.yaml`、`data/`、日志或备份文件。
+打包产物里只有程序本身（页面、样式、脚本、平台适配器、浏览器驱动），
+**不包含**你的 `sites.yaml`、`data/`、日志或备份文件；字体也不在包里（界面直接用系统字体）。
 
 ### 从源码运行
 
@@ -101,17 +101,20 @@ py -m venv .venv
 
 ### 打包
 
-安装 PyInstaller 后，在项目目录运行：
+仓库**不再附带 PyInstaller 配方**（`HomeworkTasks.spec` 已按需求移除）。需要打包时安装 PyInstaller，
+在项目目录运行这条等价命令即可：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\pyinstaller.exe HomeworkTasks.spec
+.\.venv\Scripts\python.exe -m PyInstaller --noconsole --name HomeworkTasks `
+  --icon icon.ico --add-data "web;web" --add-data "sites.yaml.template;." `
+  --collect-all playwright app.py
 ```
 
-打包结果位于 `dist/HomeworkTasks/`。`HomeworkTasks.spec` **已纳入版本控制**
-（早期版本被 `.gitignore` 的 `*.spec` 忽略，导致 clone 后按本节执行必然失败）。
-配方只收集 `web/`、`sites.yaml.template` 与 playwright 运行时；
-发布前仍请确认分享包里没有你自己的 `sites.yaml` 或 `data/`。
+打包结果位于 `dist/HomeworkTasks/`。它只收集 `web/`、`sites.yaml.template` 与 playwright 运行时
+（界面用的是**系统字体**，不再随包分发字体文件，所以没有字体相关的 `--add-data`）；
+发布前请确认分享包里没有你自己的 `sites.yaml` 或 `data/`——**注意：运行过一次产物里的
+exe 后，它会在产物目录里就地生成 `sites.yaml` 与 `data/`，压缩分享前要先删掉这两项。**
 
 ## 首次配置
 
@@ -169,9 +172,8 @@ web/                    三个页面与全部前端资源
   floating-common.js                       两个浮窗共用的交互脚本
   theme-boot.js                            主题三态（在 <head> 里同步执行）
   theme-shared.css                         三个页面共用的 token 表
-  fonts.css + fonts/                       随程序分发的字体
+  fonts.css + fonts/                       字体声明（用系统字体，仓库不含字体文件）
 sites.yaml.template     首次启动使用的站点配置模板
-HomeworkTasks.spec      PyInstaller 打包配方（已入库）
 docs/changelog/         各版本更新日志
 docs/design/            v26.5 界面重构的落地记录
 data/                   运行时生成的数据目录（不入库）

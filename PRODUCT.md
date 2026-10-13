@@ -53,8 +53,9 @@ web（仅指界面外壳：冻结包内是 pywebview + Edge WebView2，页面由
 - **浮窗高度由 Python 侧 `_calc_height` 决定 → CSS 行高与 `controller.py` 的 header/row 常量必须成对修改**，否则内容被裁切。
 - 前后端通过 pywebview `js_api` 通信，**每次调用跑在独立线程**（`webview/util.py` 里 `Thread(target=_call)`），
   因此涉及"读—改—写"配置的接口必须自己加跨调用互斥；Python 异常在 JS 侧表现为 rejected promise（多处错误分支依赖这个语义）。
-- 打包由 PyInstaller 完成（`HomeworkTasks.spec`，**已入库**：README 让用户执行它，配方不入库会导致 clone 后打包必失败）。
-  配方只收集 `web/`、`sites.yaml.template` 与 playwright 运行时；`dist/` 是构建产物，不入库（本机是否存在取决于有没有构建过）。
+- 打包由 PyInstaller 完成；仓库**不再附带配方文件**（`HomeworkTasks.spec` 已按需求删除），
+  等价的命令行写在 README 的「打包」一节。产物只收集 `web/`、`sites.yaml.template` 与 playwright 运行时；
+  `dist/` 是构建产物，不入库（本机是否存在取决于有没有构建过）。
 
 已确认的边界：未开通的平台不显示；U 校园目前只抓考试。
 
