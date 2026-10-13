@@ -1,3 +1,213 @@
+
+/* ============================================================================
+   ★ 浮窗自包含：整套 token 在这里再写一份
+   ----------------------------------------------------------------------------
+   为什么重复：panel.html 只链 panel.css，alert.html 只链 alert.css，三个页面
+   是彼此独立的文档 —— 浮窗读不到 main.css 里的 :root。
+   之前 --alert-mark / --float-mark 只在 main.css 定义，浮窗里解析成空值，
+   呼吸点直接变成透明的、勾选框标识色也丢了。
+   （下面的 --plate-* 会覆盖这里的浮窗默认值，见文件末尾的配色段。）
+   ========================================================================== */
+/* ============================================================================
+   液态玻璃 · 共享 token（预览用覆盖样式，不写进源码）
+   ----------------------------------------------------------------------------
+   设计读法：Operate 模式的桌面工具，材料语言 = 液态玻璃。
+   Dials: DESIGN_VARIANCE 4 / MOTION_INTENSITY 5 / VISUAL_DENSITY 6
+     - variance 低：信息架构、类名、DOM、文案一律不动，只换"框"的材质
+     - motion 中：只做有回应的反馈（悬停变清、按下、勾选）
+     - density 高：浮窗行距是硬约束，不能让玻璃把可读性/信息量吃掉
+
+   两套主题，各自成套，不是把一套机械反转：
+     亮主题（默认，跟随 Windows 亮色）  晨雾底版 → 浅色玻璃 → 墨字 → 橙红 / 浅蓝 标识
+     暗主题（跟随 Windows 暗色）        黄昏底版 → 深色玻璃 → 白字
+
+   主题由 <html data-lg-dark> 显式切换（真实应用里绑系统外观；预览页里手动切）。
+   所以下面不用 prefers-color-scheme 切颜色，只有"减少效果"这类系统偏好才用它。
+
+   诚实标注：Apple 只为 Apple 平台文档化了 Liquid Glass，Web 上没有官方
+   liquid-glass.css。这里是 backdrop-filter + 分层高光 + 边缘折射环的近似实现。
+
+   不变量：
+   1. 圆角只有三档 --r-ctl / --r-row / --r-panel；模糊只有三档；时长只有四个。
+   2. 承载文字的表面必须够实：alpha 按"背后最坏情况"反算，
+      改 alpha 之前先重跑 design-verify/liquid-glass/verify.js。
+   3. 状态不能只靠颜色表达（同时有措辞 / 位置 / 线条差异）。
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 强调色：全站唯一（原 #4a69bd / #2d5bd1 混用 → 收敛为一个） ---------- */
+  
+  
+  
+  
+  
+
+  /* ---------- 语义色（只在表达状态时出现） ---------- */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  /* ---------- 主窗口底版 / 玻璃壳 ---------- */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+  
+
+  /* ---------- 圆角：只有三档 ---------- */
+  
+  
+  
+
+  /* ---------- 材质参数 ---------- */
+  
+  
+  
+
+  
+  
+  
+  
+
+  
+  
+
+  /* ---------- 浮窗 · 亮主题 = 浅色玻璃 + 墨字 ----------
+     浮窗窗口是真的（pywebview transparent=True），但**内容层给的是固有色底板**：
+     --float-tint 完全不透明，桌面不再透进来。
+     好处是对比度不再依赖壁纸 —— 浅色底 + 墨字是确定的数学关系，
+     不用再按"最坏壁纸"反算，也不怕花哨壁纸把可读性吃掉。
+     浅蓝 = 常驻白窗的标识色；橙红 = 紧急窗的标识色。 */
+  
+  --float-tint-top:   rgba(255, 255, 255, 0.72);
+  
+  
+  
+  
+  
+  
+  
+  
+  
+     /* 常驻窗：浅蓝标识 */
+  
+     /* 紧急窗：橙红标识 */
+  
+  
+
+  /* ---------- 浮窗 · 暗主题 = 深色底板 + 白字 ---------- */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+}
+
+/* ============================================================================
+   暗主题：整套重配（底版变深、玻璃转深、墨色提亮）。
+   ========================================================================== */
+html[data-lg-dark] {
+  color-scheme: dark;
+
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+  
+
+  /* 浮窗整体切到深色玻璃 + 白字 */
+  
+  --float-tint-top:   var(--float-dark-tint-top);
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+}
+
+/* 关掉系统透明效果：两套主题都退回实体色，对比度不变 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --surface:     #ffffff;
+    --surface-row: #ffffff;
+    --surface-hi:  #ffffff;
+    --float-tint:       #f7f9fc;
+    --float-tint-top:   #ffffff;
+  }
+  html[data-lg-dark] {
+    --float-tint:     #131a28;
+    --float-tint-top: #1b2434;
+  }
+}
+
+
 /* 浮窗（未完成）样式。
    两条硬约束，改这里之前先读：
    1) 行高必须与 window.py 的 _calc_height 配对：header≈44 + 每行 16.19 + margin-bottom 5。
@@ -48,7 +258,11 @@ body {
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
-.header button:hover { background: rgba(255, 255, 255, 0.85); color: #131c2b; }
+/* 悬停只改底色，**不改字色**。
+   ★ 原文这里是 `{ background: rgba(255,255,255,0.85); color: #131c2b; }` —— 字色被改成深墨。
+     而 alert.css 里没有这一条，所以只有待办窗的「主面板」三个字在指针划过时会变深
+     （用户看到的"点一下字就加深"）。底板现在是彩色玻璃，悬停必须保持底板给的字色。 */
+.header button:hover { background: rgba(255, 255, 255, 0.85); }
 .header button:active { transform: scale(0.96); }
 .header button.icon-btn {
   padding: 4px 7px;
@@ -159,4 +373,453 @@ body {
   color: #131c2b;
   margin-top: 4px;
   padding-left: 26px;
+}
+
+
+/* ============================================================================
+   未完成浮窗 · 固有色底板 + 两套主题
+   ----------------------------------------------------------------------------
+   这次改动只换"框"的材质、颜色、圆角与动效：
+   DOM、类名、文案、交互逻辑一律不动；Python 侧 _calc_height 配对不动。
+
+   两套主题，各自成套：
+     亮主题（默认）  晨雾底版 → 浅色底板 → 墨字 → 鲜红/天蓝 标识
+     暗主题          黄昏底版 → 深色底板 → 白字
+   由 <html data-lg-dark> 决定，解析在 theme-boot.js（三态 auto/light/dark）。
+
+   浮窗行距是硬约束（与 controller.py 的 _calc_height 配对）：
+     .header 44px、.item height 16.19px + margin-bottom 3px、不加 border/上下内边距。
+   ========================================================================== */
+/* ============================================================================
+   浮窗配色 · 四个窗口共用同一套结构，只换颜色
+   ----------------------------------------------------------------------------
+   ★ 结构层（--plate-*）四个窗口完全一致，值只在下面写一次：
+       底板渐变 / 圆角 14px / 外阴影 / 内描边 / 左上受光晕 / 顶部受光线
+     ★ 换的只有三个东西：底板色、字色、描边色。
+
+   四个组合（对比度按各自字色算过，正文 ≥ 4.5:1）：
+
+                      底板        字色                正文对比度
+     亮 · 未完成      #cfe6fb     #0b1320（墨）        14.50:1
+     亮 · 紧急        #d92d20     #ffffff（白）         4.83:1
+     暗 · 未完成      #1b3a5c     #ffffff（白）        11.63:1
+     暗 · 紧急        #7c2745     #ffffff（白）         9.40:1
+   ========================================================================== */
+
+/* ---------------------------------------------------- 结构层（共用，勿按主题改） */
+body {
+  /* ★ 外框不再切圆角：窗口是 frameless + transparent 的独立窗口，
+     外框的圆角只能靠"把四角画成透明"来伪装，方角窗口配上圆角底板，
+     四个角会留下半透明的残影。现在底板与外框都是直角，
+     圆角只留给窗口内部的元素（任务行 / 按钮）。
+     用变量而不是直接删 border-radius：这样"圆角只有这一处开关"，
+     不会再从别的地方漏出来一个 round。 */
+  --plate-radius: 0;
+  --plate-shadow:   0 14px 32px rgba(20, 28, 44, 0.22), 0 2px 6px rgba(20, 28, 44, 0.14);
+  --plate-shadow-d: 0 16px 36px rgba(3, 6, 12, 0.48), 0 2px 6px rgba(3, 6, 12, 0.30);
+  --plate-inner:    rgba(255, 255, 255, 0.18);
+  /* 受光晕刻意压到"几乎看不见"：它是唯一会在顶部堆出一条浅带的层。
+     实测 0.14 时顶部会被抬亮 0.37 个白，浅蓝底上就是一条白带。 */
+  --plate-glow:     rgba(255, 255, 255, 0.02);
+  --plate-topline:  rgba(255, 255, 255, 0.08);
+  --plate-fade:     rgba(0, 0, 0, 0.06);
+  /* 底板色之下再垫一层极淡的暗底：淡色板直接压在壁纸上会"发飘"。 */
+  --plate-under:    rgba(11, 19, 32, 0.06);
+  /* 任务卡的卡面（非悬停）：很轻的一层白玻璃 + 顶部内高光。
+     浮窗行只有 16.19px 高、行距 3px，值给大了会挤；这里对齐主面板的"能看出、不突兀"。 */
+  --plate-card:      rgba(255, 255, 255, 0.06);
+  --plate-card-hi:   rgba(255, 255, 255, 0.13);
+  --plate-card-line: rgba(255, 255, 255, 0.10);
+  /* 玻璃面 = 两层：
+       1) 受光：顶部微亮、线性收到 100%（覆盖整个高度 —— 紧急窗只有 118px，
+          如果让它在 76% 就回落到 0，矮窗里只剩 45px 的段落，量出来几乎平）
+       2) 底部压深：从 52% 起渐入，给底板一点"厚度"
+     ★ 幅度必须小：0.06 起步时上下明暗差 0.24（亮度），那不是玻璃，是渐变贴纸。 */
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.055) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
+}
+
+/* ---------------------------------------------------------------- 亮主题 */
+/* 未完成：天蓝 */
+body {
+  /* 待办窗（亮主题）：**调淡**，不是调亮。
+     原色 #0d6efd = HSL(216, 98%, 52%) —— 饱和 98% 本身就是"很艳"。
+     做法：亮度 52% → 62%，饱和 98% → 71%（原来的 0.72 倍）→ #5991e3。
+     ★ 一开始按"新浅 = 2a − b"算成了 #00a2ff，那是**又亮又更饱和**（100%、
+       撞到色域上限），方向和"淡"正好相反。
+     ★ 副作用：底板亮度 0.183 → 0.279，白字只剩 2.5:1，所以字色一并换墨字
+       （5.83:1）—— 这也正是"浅色主题用黑字更多"的那条调性。 */
+  --plate-bg:    #5991e3;
+  --plate-text:  #0b1320;
+  /* 次级文字：比正文浅一点但仍够 4.5（底端 4.55:1） */
+  --plate-text2: #0c2740;
+  /* 亮底板上所有半透明白都要换成"半透明墨"：白叠亮蓝等于没叠 */
+  --plate-line:  rgba(11, 19, 32, 0.20);
+  --plate-hover: rgba(11, 19, 32, 0.10);
+  --plate-btn:   rgba(255, 255, 255, 0.42);
+  --plate-btn-hi: rgba(255, 255, 255, 0.66);
+  /* 一块淡蓝板直接压在壁纸上会"发飘"，垫一层极淡的暗底给它一个面 */
+  --plate-under: rgba(11, 19, 32, 0.10);
+  --plate-fade:  rgba(0, 0, 0, 0.025);
+  /* ★ 标识色必须跟着底板一起变：共享 token 里的 --float-mark（#2b6fd4）
+     是为**更浅的旧底板**定的，放到这块淡蓝上只有 2.2:1，复选框描边会看不清。
+     这里只覆盖**浮窗页的亮主题**作用域；主窗口亮主题用法不同，不受影响。 */
+  --float-mark:  #1d4ed8;
+  /* ★ 亮底板的受光要**反过来算**：底板亮、字墨，原来那档 rgba(255,255,255,0.08)
+     的白线叠在亮蓝上比周围更暗，量出来是 -0.13（一条暗线）。
+     亮底板的玻璃高光应该是"更白的白"，0.08 这一档实测约 0.03 亮度差。 */
+  --plate-topline:  rgba(255, 255, 255, 0.08);
+  --plate-inner:    rgba(255, 255, 255, 0.34);
+}
+/* 紧急：淡红 */
+body[data-kind="alert"] {
+  /* 紧急窗亮色：同样"降饱和 + 提亮"。
+     原色 #d92d20 = HSL(4, 74%, 49%) → 亮度 62%、饱和 53% → #d2726a。
+     它仍是明确的红（能读出"紧急"），但不再刺眼，与待办窗同一个降饱和系数。 */
+  --plate-bg:    #d2726a;
+  --plate-text:  #0b1320;
+  /* 次级文字：底端 4.73:1 */
+  --plate-text2: #3d1109;
+  --plate-line:  rgba(11, 19, 32, 0.22);
+  --plate-hover: rgba(11, 19, 32, 0.10);
+  --plate-btn:   rgba(255, 255, 255, 0.40);
+  --plate-btn-hi: rgba(255, 255, 255, 0.64);
+  --plate-under: rgba(11, 19, 32, 0.10);
+  --plate-fade:  rgba(0, 0, 0, 0.025);
+  /* ★ 呼吸点 / 复选框描边：淡红底上要用**更深的同一色相**，而不是纯墨
+     （纯墨在这块淡红上是 5.6:1，太抢眼，把"紧急"的红压掉了）。 */
+  --alert-mark:  #8f2d10;
+  /* 淡红底板上的受光同样要更白（理由见待办窗的 --plate-topline） */
+  --plate-topline:  rgba(255, 255, 255, 0.08);
+  --plate-inner:    rgba(255, 255, 255, 0.34);
+}
+
+/* ---------------------------------------------------------------- 暗主题 */
+html[data-lg-dark] body {
+  --plate-shadow:   var(--plate-shadow-d);
+  --plate-inner:    rgba(255, 255, 255, 0.08);
+  --plate-glow:     rgba(255, 255, 255, 0.025);
+  --plate-topline:  rgba(255, 255, 255, 0.09);
+  --plate-fade:     rgba(0, 0, 0, 0.22);
+  /* 暗主题的受光要更收：同一档白压在深底上会显得"发灰发雾"。
+     两套主题的**透度档位一致**（都是很低），只是叠白的量不同。 */
+  --plate-sheen: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(255, 255, 255, 0.00) 100%),
+    linear-gradient(180deg, transparent 52%, var(--plate-fade) 100%);
+  /* 暗底上的卡面要更收一点（同一档白在深底上显灰） */
+  --plate-card:      rgba(255, 255, 255, 0.05);
+  --plate-card-hi:   rgba(255, 255, 255, 0.12);
+  --plate-card-line: rgba(255, 255, 255, 0.09);
+
+  /* 未完成：普兰 */
+  --plate-bg:    #1b3a5c;
+  --plate-text:  #ffffff;
+  --plate-text2: #d8e2f2;
+  --plate-line:  rgba(255, 255, 255, 0.18);
+  --plate-hover: rgba(255, 255, 255, 0.10);
+  --plate-btn:   rgba(255, 255, 255, 0.12);
+  --plate-btn-hi: rgba(255, 255, 255, 0.22);
+}
+/* 紧急：深紫红 */
+html[data-lg-dark] body[data-kind="alert"] {
+  --plate-bg:    #7c2745;
+  --plate-text:  #ffffff;
+  --plate-text2: #f0d8e2;
+  --plate-line:  rgba(255, 190, 210, 0.22);
+  --plate-hover: rgba(255, 255, 255, 0.12);
+  --plate-btn:   rgba(255, 255, 255, 0.14);
+  --plate-btn-hi: rgba(255, 255, 255, 0.24);
+}
+
+
+/* ============================================================================
+   未完成浮窗 · 材质与排印覆盖（在原文之后，层叠上生效）
+   ----------------------------------------------------------------------------
+   这次改动只换"框"的材质、颜色、圆角与动效：
+   DOM、类名、文案、交互逻辑一律不动；Python 侧 _calc_height 配对不动。
+
+   两套主题，各自成套：
+     亮主题（默认）  晨雾底版 → 浅色底板 → 墨字 → 鲜红/天蓝 标识
+     暗主题          黄昏底版 → 深色底板 → 白字
+   由 <html data-lg-dark> 决定，解析在 theme-boot.js（三态 auto/light/dark）。
+
+   浮窗行距是硬约束（与 controller.py 的 _calc_height 配对）：
+     .header 44px、.item height 16.19px + margin-bottom 3px、不加 border/上下内边距。
+   ========================================================================== */
+/* ============================================================================
+   未完成浮窗（panel.html）· 预览用覆盖样式（注入到 panel.css 之后）
+   ----------------------------------------------------------------------------
+   硬约束（与 Python 配对，改这里之前先读）：
+   1) 窗口高度 = controller.py 的 _calc_height：header 46 + n × 22 + 16，上限 360。
+      所以 .header 必须仍是 44px，.item 必须仍是 height 16.19px + margin-bottom 3px，
+      并且不能加 border / 上下内边距 —— 会把行撑高、把窗口最后一行裁掉。
+   2) 窗口是真的（pywebview transparent=True），但内容层是**固有色底板**：
+      --plate-bg 完全不透明，桌面不透进来。对比度因此是确定的（底色 vs 字色），
+      不依赖壁纸。四个底色的字色都按 4.5:1 算过（见 25-float-themes.css 注释）。
+
+   相对 panel.css 改了什么：
+   - 底板：从"半透明白玻璃"改成按主题取的固有色（亮=天蓝 / 暗=普兰），带顶部微光与内描边；
+   - 结构：标题栏与任务行之间一条细线，两处读起来是"一块底板上的两个区域"；
+   - 排印：标题 11px → 11.5px，时间用等宽数字，勾选框与文本间距收到 9px；
+   - 反馈：悬停时这一行"变清"（底色变亮）+ 右移 2px，没有纵向位移；
+   - 交互目标：窗口按钮 24 → 26×26。
+   ========================================================================== */
+
+html { background: transparent; }
+body {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  color: var(--plate-text);
+  /* 玻璃质感 = 和主面板同一风味，但**不做壁纸透明**：
+     底板仍是固有色（--plate-bg 不透明），所以对比度是确定的数学关系，
+     不依赖桌面壁纸 —— 这是四个窗口的字色能算准的前提。
+     质感靠四层叠出来：
+       1) --plate-under：垫在底板色之下的极淡暗层，给淡色板一个"面"
+       2) --plate-sheen：纵向受光 + 底部压深
+       3) --plate-topline：顶部一条 1px 受光线（见 body::after）
+       4) --plate-inner：内描边高光（box-shadow inset）
+     另外加一层 backdrop-filter：pywebview 的浮窗采样不到桌面，这层在真机上
+     只在"窗口内部元素互相叠加"时起作用，主要价值是让悬停/勾选的层次更干净。 */
+  background-color: var(--plate-bg);
+  /* 层序（上→下）：受光/压深 → 淡暗垫层 → 底板色。
+     background-color 在本层之下，所以底板色用 background-color 而不是第三个渐变。 */
+  background-image: var(--plate-sheen), linear-gradient(var(--plate-under), var(--plate-under));
+  /* ★ 描边不用 border 而用 inset 阴影：
+     DPR 2 下 border: 1px 会吃掉两个像素行，把 body::after 的顶部受光线
+     挤到描边内侧，看起来就是"顶上一条暗边、亮线看不见"。
+     inset 阴影不占布局（窗口高度仍由 Python 决定），描边也细一半。 */
+  border: none;
+  /* ★ 外框不切圆角（方角窗口配圆角底板会在四角留残影） */
+  border-radius: var(--plate-radius);
+  box-shadow: var(--plate-shadow), inset 0 1px 0 var(--plate-inner), inset 0 0 0 1px var(--plate-line);
+  backdrop-filter: blur(var(--blur-float)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur-float)) saturate(160%);
+  isolation: isolate;
+}
+/* 左上角一轮受光：只是质感，幅度刻意很小（大了就是一条白带） */
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(120% 86% at 6% -12%, var(--plate-glow), transparent 62%);
+}
+/* 顶部一条受光线：不承载信息，只交代"这是一块有厚度的玻璃"。
+   ★ z-index 必须高于标题栏（.header 是 z-index:1），否则这 1px 会被它整条盖住。 */
+body::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 1px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--plate-topline) 8%, var(--plate-topline) 92%, transparent);
+}
+
+/* ------------------------------------------------------------------ 标题栏 */
+.header {
+  position: relative;
+  z-index: 1;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--plate-text);
+  user-select: none;
+  /* 标题栏不再自己铺一层白：原 panel.css 的 rgba(255,255,255,0.58) 会在
+     浅蓝底上糊出顶部一条明显的浅色带（深色底上更刺眼）。
+     现在整窗就是一块底板，标题栏与任务行靠一条细线分开。 */
+  background: none;
+  /* ★ 也去掉 backdrop-filter：它在浮窗上**采样不到桌面**（pywebview 的窗口
+     在 WebView 之外），只会把底板糊成一片 —— 那正是一开始"浮窗太平"的来源。
+     更直接的副作用：它会把 body::after 那条 1px 受光线吸附、模糊到整片标题栏，
+     于是"顶部一条亮线"永远读不出来（实测被抹平到与底板同亮度）。 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  /* 用 inset 阴影画细线：不占布局，窗口高度仍由 Python 决定 */
+  box-shadow: inset 0 -1px 0 var(--plate-line);
+}
+.header .left { display: flex; align-items: center; gap: 7px; min-width: 0; }
+/* 未完成窗：标题前不再放标识块 —— 底板本身就是蓝色，
+   再点一个小方块是重复表达，视觉上也多余。 */
+.header .left::before { content: none; display: none; }
+.header .left #count {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--plate-text2);
+  font-variant-numeric: tabular-nums;
+}
+.header .header-btns { display: flex; align-items: center; gap: 5px; }
+
+.header button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 5px 11px;
+  min-height: 26px;
+  color: var(--plate-text);
+  /* 玻璃：与另外三个窗口的功能按钮同一套做法（半透明底 + 背景模糊）。
+     原来这里只铺了一层半透明白、没有 backdrop-filter，
+     所以看起来是"一块白"而不是玻璃。 */
+  background: var(--plate-btn);
+  border: 1px solid var(--plate-line);
+  border-radius: var(--r-ctl);
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  cursor: pointer;
+  transition: background var(--t-state) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              transform var(--t-press) var(--ease-out);
+}
+.header button:hover { background: var(--plate-btn-hi); }
+.header button:active { transform: scale(0.95); }
+.header button:focus-visible { outline: 2px solid var(--float-focus); outline-offset: 2px; }
+.header button.icon-btn {
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--plate-text2);
+}
+.header button.icon-btn:hover { color: var(--plate-text); }
+
+/* -------------------------------------------------------------------- 任务行 */
+/* 行高 16.19 + margin-bottom 3 与 _calc_height 配对，这一对数字不要动。 */
+#body { position: relative; z-index: 1; padding: 4px 10px 5px; }
+
+.item {
+  position: relative;
+  height: 16.19px;
+  margin-bottom: 3px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--plate-text);
+  /* ★ 卡面：原来这里是 background:none —— 行与行之间只隔 3px，整片看起来是一块
+     没有层次的色板。现在给每行一层**很轻**的白玻璃，让它在非悬停时也能读出"一行一行"
+     的立体感（和主面板的任务卡同一手法、同一量级：主面板卡面对底板实测 1.035:1）。
+     值刻意压得很小：浮窗行只有 16.19px 高、行距 3px，给大了会挤成一团黑。
+     内高光用 inset 0 1px 0 而不是 border —— 不占布局，_calc_height 的预算不动。 */
+  background: var(--plate-card);
+  box-shadow: inset 0 1px 0 var(--plate-card-line);
+  border-radius: 7px;
+  transition: background var(--t-state) var(--ease-out),
+              transform var(--t-move) var(--ease-out);
+}
+.item:hover {
+  background: var(--plate-card-hi);
+  transform: translateX(2px);
+}
+.item:active { transform: translateX(2px) scale(0.996); }
+
+/* 勾选框：13px 视觉，勾是矢量（旋转边框），不是字符 */
+.item input[type=checkbox] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  margin: 0 9px 0 1px;
+  align-self: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 1.5px solid var(--plate-text2);
+  border-radius: 5px;
+  background: var(--plate-btn);
+  display: inline-grid;
+  place-content: center;
+  transition: background var(--t-state) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              transform var(--t-press) var(--ease-out);
+}
+.item input[type=checkbox]::after {
+  content: "";
+  width: 3px;
+  height: 5.6px;
+  border: solid var(--float-mark-ink);
+  border-width: 0 1.6px 1.6px 0;
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.2);
+  opacity: 0;
+  transition: opacity var(--t-state) var(--ease-out), transform var(--t-state) var(--ease-out);
+}
+.item input[type=checkbox]:hover {
+  border-color: var(--float-mark);
+  box-shadow: 0 0 0 3px rgba(43, 111, 212, 0.22);
+}
+/* 勾选态：实心标识色，勾色按主题取（见 tokens 的 --float-mark-ink） */
+.item input[type=checkbox]:checked {
+  background: var(--float-mark);
+  border-color: var(--float-mark);
+}
+.item input[type=checkbox]:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.item input[type=checkbox]:focus-visible { outline: 2px solid var(--float-focus); outline-offset: 2px; }
+
+.item .title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: 0.012em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.item .due {
+  color: var(--plate-text2);
+  font-size: 11px;
+  line-height: 1.2;
+  margin-left: 8px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.more {
+  position: relative;
+  z-index: 1;
+  font-size: 10.5px;
+  color: var(--plate-text2);
+  margin-top: 1px;
+  padding-left: 23px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------ 系统偏好兜底 */
+@media (prefers-reduced-transparency: reduce) {
+  body { background-image: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .item, .item:hover, .item:active { transform: none; }
+  .header button:active { transform: none; }
+}
+
+
+/* ============================================================================
+   全软件统一字体（放在文件最后，确保层叠上生效）
+   ----------------------------------------------------------------------------
+   浏览器给 button / input / select / textarea 指定了 UA 字体（Windows 上是 Arial），
+   表单控件**不继承** body 的字体 —— 所以右上角四个功能按钮、标签、输入框
+   一直是 Arial，只有纯文本跟着走了楷体 + Times。
+   让它们继承即可；字体栈本身只在 fonts.css 的 --font-ui 里定义一处。
+   （checkbox / radio 不受影响：外观由 appearance 控制，字体不参与绘制。）
+   ========================================================================== */
+button, input, select, textarea, optgroup {
+  font-family: inherit;
 }

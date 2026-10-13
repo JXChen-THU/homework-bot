@@ -1,0 +1,139 @@
+/* ============================================================================
+   液态玻璃 · 共享主题表（三个页面共引）
+   ----------------------------------------------------------------------------
+   为什么有这份文件：index.html / panel.html / alert.html 是三个**独立文档**，
+   浮窗读不到 main.css 的 :root —— 所以这套 token 原先在三个文件里各写了一遍
+   （70 个 × 3 份）。一处调整要同步三个地方，是这个项目反复出 bug 的根源：
+   「--alert-mark 只写在 main.css，浮窗里解析成空值」就是其中之一。
+
+   现在：token 只在这里定义一次，三个页面在各自样式表**之前**引入本文件。
+   各页面自己的样式表仍然在后面加载，所以"某个页面特有的值"照旧能覆盖这里
+   （例如主窗口的 --warn 与浮窗不同，那是主窗口自己的语义色，不是重复）。
+
+   ★ 本文件只放 token，不放选择器与布局 —— 那些仍然各归各页。
+   ★ 改动本文件后必须重跑：node design-verify/liquid-glass/verify-snapshot.js compare before
+     （它逐元素比对计算样式 + 任务卡渐变带的像素，必须零差异。）
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 亮主题（默认） */
+:root {
+  --accent: #2f5fe0;
+  --accent-hover: #2751c8;
+  --accent-ink: #17357f;
+  --accent-wash: rgba(47, 95, 224, 0.10);
+  --accent-line: rgba(47, 95, 224, 0.30);
+  --warn: #7a5f30;
+  --warn-bg: rgba(255, 222, 150, 0.55);
+  --warn-line: rgba(180, 130, 20, 0.34);
+  --danger: #a32a1c;
+  --danger-text: #9c2a1e;
+  --danger-bg: rgba(210, 80, 60, 0.12);
+  --danger-line: rgba(210, 80, 60, 0.30);
+  --ok: #1d7a4a;
+  --ok-bg: rgba(60, 180, 120, 0.16);
+  --ok-line: rgba(40, 150, 95, 0.30);
+  --page: #e9eef7;
+  --surface: rgba(255, 255, 255, 0.62);
+  --surface-row: rgba(255, 255, 255, 0.72);
+  --surface-hi: rgba(255, 255, 255, 0.80);
+  --shell-line: rgba(255, 255, 255, 0.62);
+  --rim: rgba(255, 255, 255, 0.52);
+  --hairline: rgba(16, 24, 40, 0.09);
+  --hairline-hi: rgba(255, 255, 255, 0.55);
+  --track: rgba(16, 24, 40, 0.07);
+  --ink: #101828;
+  --ink-2: #37435a;
+  --ink-3: #58657d;
+  --focus: #2f5fe0;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.09), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 24px 60px rgba(16, 24, 40, 0.22), 0 2px 8px rgba(16, 24, 40, 0.10);
+  --r-ctl: 8px;
+  --r-row: 12px;
+  --r-panel: 16px;
+  --blur-shell: 18px;
+  --blur-row: 10px;
+  --blur-float: 26px;
+  --t-press: 100ms;
+  --t-state: 160ms;
+  --t-move: 240ms;
+  --t-over: 360ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --float-tint: #f7f9fc;
+  --float-shell-line: rgba(11, 19, 32, 0.10);
+  --float-text: #0b1320;
+  --float-text-2: #39445a;
+  --float-hairline: rgba(11, 19, 32, 0.10);
+  --float-btn: rgba(11, 19, 32, 0.05);
+  --float-btn-hi: rgba(11, 19, 32, 0.11);
+  --float-focus: #1b4fd0;
+  --float-shadow: 0 14px 32px rgba(20, 28, 44, 0.20), 0 2px 6px rgba(20, 28, 44, 0.12);
+  --float-warn: #8f2a18;
+  --float-mark: #2b6fd4;
+  --float-mark-ink: #ffffff;
+  --alert-mark: #c9451f;
+  --float-row-hover: rgba(11, 19, 32, 0.045);
+  --float-row-hi: rgba(11, 19, 32, 0.08);
+  --float-dark-tint: #141a26;
+  --float-dark-tint-top: rgba(255, 255, 255, 0.07);
+  --float-dark-text: #ffffff;
+  --float-dark-text-2: rgba(255, 255, 255, 0.88);
+  --float-dark-hairline: rgba(255, 255, 255, 0.14);
+  --float-dark-btn: rgba(255, 255, 255, 0.12);
+  --float-dark-btn-hi: rgba(255, 255, 255, 0.22);
+  --float-dark-shell-line: rgba(255, 255, 255, 0.34);
+  --float-dark-shadow: 0 18px 40px rgba(6, 10, 20, 0.42), 0 2px 6px rgba(6, 10, 20, 0.26);
+  --float-dark-row-hover: rgba(255, 255, 255, 0.16);
+  --float-dark-row-hi: rgba(255, 255, 255, 0.22);
+  --float-dark-focus: #a9c4ff;
+}
+
+/* ---------------------------------------------------------------- 暗主题 */
+html[data-lg-dark] {
+  --accent: #7ea2ff;
+  --accent-hover: #93b2ff;
+  --accent-ink: #cfe0ff;
+  --accent-wash: rgba(126, 162, 255, 0.16);
+  --accent-line: rgba(126, 162, 255, 0.34);
+  --warn: #e5c07b;
+  --warn-bg: rgba(229, 192, 123, 0.16);
+  --warn-line: rgba(229, 192, 123, 0.30);
+  --danger: #ff9a8a;
+  --danger-text: #ffb3a6;
+  --danger-bg: rgba(255, 120, 100, 0.16);
+  --danger-line: rgba(255, 120, 100, 0.30);
+  --ok: #6fd39b;
+  --ok-bg: rgba(111, 211, 155, 0.16);
+  --ok-line: rgba(111, 211, 155, 0.30);
+  --page: #0d1220;
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-row: rgba(255, 255, 255, 0.08);
+  --surface-hi: rgba(255, 255, 255, 0.12);
+  --shell-line: rgba(255, 255, 255, 0.12);
+  --rim: rgba(255, 255, 255, 0.10);
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-hi: rgba(255, 255, 255, 0.14);
+  --track: rgba(255, 255, 255, 0.10);
+  --ink: #f7f9fe;
+  --ink-2: #e2e9f7;
+  --ink-3: #bcc7dd;
+  --focus: #a9c4ff;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34), 0 1px 3px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-lg: 0 28px 64px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --float-tint: var(--float-dark-tint);
+  --float-text: var(--float-dark-text);
+  --float-text-2: var(--float-dark-text-2);
+  --float-hairline: var(--float-dark-hairline);
+  --float-btn: var(--float-dark-btn);
+  --float-btn-hi: var(--float-dark-btn-hi);
+  --float-shell-line: var(--float-dark-shell-line);
+  --float-shadow: var(--float-dark-shadow);
+  --float-row-hover: var(--float-dark-row-hover);
+  --float-row-hi: var(--float-dark-row-hi);
+  --float-focus: var(--float-dark-focus);
+  --float-mark: #6aa6f5;
+  --float-mark-ink: #0b1320;
+  --alert-mark: #ff8a5c;
+}

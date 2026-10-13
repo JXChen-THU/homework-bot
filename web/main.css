@@ -1,8 +1,226 @@
+/* ============================================================================
+   主窗口 · 设计 token 与两套主题
+   ----------------------------------------------------------------------------
+   这次改动只换"框"的材质、颜色、圆角与动效：
+   DOM、类名、文案、交互逻辑一律不动；Python 侧 _calc_height 配对不动。
+
+   两套主题，各自成套：
+     亮主题（默认）  晨雾底版 → 浅色底板 → 墨字 → 鲜红/天蓝 标识
+     暗主题          黄昏底版 → 深色底板 → 白字
+   由 <html data-lg-dark> 决定，解析在 theme-boot.js（三态 auto/light/dark）。
+
+   浮窗行距是硬约束（与 controller.py 的 _calc_height 配对）：
+     .header 44px、.item height 16.19px + margin-bottom 3px、不加 border/上下内边距。
+   ========================================================================== */
+
 /* ========== 全局重置 ========== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+
+/* ============================================================================
+   液态玻璃 · 共享 token（预览用覆盖样式，不写进源码）
+   ----------------------------------------------------------------------------
+   设计读法：Operate 模式的桌面工具，材料语言 = 液态玻璃。
+   Dials: DESIGN_VARIANCE 4 / MOTION_INTENSITY 5 / VISUAL_DENSITY 6
+     - variance 低：信息架构、类名、DOM、文案一律不动，只换"框"的材质
+     - motion 中：只做有回应的反馈（悬停变清、按下、勾选）
+     - density 高：浮窗行距是硬约束，不能让玻璃把可读性/信息量吃掉
+
+   两套主题，各自成套，不是把一套机械反转：
+     亮主题（默认，跟随 Windows 亮色）  晨雾底版 → 浅色玻璃 → 墨字 → 橙红 / 浅蓝 标识
+     暗主题（跟随 Windows 暗色）        黄昏底版 → 深色玻璃 → 白字
+
+   主题由 <html data-lg-dark> 显式切换（真实应用里绑系统外观；预览页里手动切）。
+   所以下面不用 prefers-color-scheme 切颜色，只有"减少效果"这类系统偏好才用它。
+
+   诚实标注：Apple 只为 Apple 平台文档化了 Liquid Glass，Web 上没有官方
+   liquid-glass.css。这里是 backdrop-filter + 分层高光 + 边缘折射环的近似实现。
+
+   不变量：
+   1. 圆角只有三档 --r-ctl / --r-row / --r-panel；模糊只有三档；时长只有四个。
+   2. 承载文字的表面必须够实：alpha 按"背后最坏情况"反算，
+      改 alpha 之前先重跑 design-verify/liquid-glass/verify.js。
+   3. 状态不能只靠颜色表达（同时有措辞 / 位置 / 线条差异）。
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 强调色：全站唯一（原 #4a69bd / #2d5bd1 混用 → 收敛为一个） ---------- */
+  
+  
+  
+  
+  
+
+  /* ---------- 语义色（只在表达状态时出现） ---------- */
+     /* 比 #8a6d3b 深一档：警示胶囊只有 11px，要够 4.5:1 */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  /* ---------- 主窗口底版 / 玻璃壳 ---------- */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+  
+
+  /* ---------- 圆角：只有三档 ---------- */
+  
+  
+  
+
+  /* ---------- 材质参数 ---------- */
+  
+  
+  
+
+  
+  
+  
+  
+
+  
+  
+
+  /* ---------- 浮窗 · 亮主题 = 浅色玻璃 + 墨字 ----------
+     浮窗窗口是真的（pywebview transparent=True），但**内容层给的是固有色底板**：
+     --float-tint 完全不透明，桌面不再透进来。
+     好处是对比度不再依赖壁纸 —— 浅色底 + 墨字是确定的数学关系，
+     不用再按"最坏壁纸"反算，也不怕花哨壁纸把可读性吃掉。
+     浅蓝 = 常驻白窗的标识色；橙红 = 紧急窗的标识色。 */
+  
+  --float-tint-top:   rgba(255, 255, 255, 0.72);
+  
+  
+  
+  
+  
+  
+  
+  
+  
+     /* 常驻窗：浅蓝标识 */
+  
+     /* 紧急窗：橙红标识 */
+  
+  
+
+  /* ---------- 浮窗 · 暗主题 = 深色底板 + 白字 ---------- */
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+}
+
+/* ============================================================================
+   暗主题：整套重配（底版变深、玻璃转深、墨色提亮）。
+   ========================================================================== */
+html[data-lg-dark] {
+  color-scheme: dark;
+
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+  
+  
+  
+
+  
+  
+  
+  
+
+  /* 浮窗整体切到深色玻璃 + 白字 */
+  
+  --float-tint-top:   var(--float-dark-tint-top);
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+}
+
+/* 关掉系统透明效果：两套主题都退回实体色，对比度不变 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --surface:     #ffffff;
+    --surface-row: #ffffff;
+    --surface-hi:  #ffffff;
+    --float-tint:       #f7f9fc;
+    --float-tint-top:   #ffffff;
+  }
+  html[data-lg-dark] {
+    --float-tint:     #131a28;
+    --float-tint-top: #1b2434;
+  }
+}
+
 body {
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  /* ★ 必须是 var(--font-ui)（中文楷体 + 拉丁 Times）。
+     这条规则在 fonts.css 之后，写死系统字体栈会把它整条盖掉 ——
+     主窗口一直是系统字体，就是这个原因。改字体只改 fonts.css 里的 --font-ui。 */
+  font-family: var(--font-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif);
   /* 主窗口底版：与浮窗同一族彩色渐变。
      玻璃壳（.item / header / 弹窗）是半透明白，底色会从玻璃里淡淡透出来，
      所以这里只走"淡"的一档，深了会把正文对比度一起拖下去。 */
@@ -13,20 +231,27 @@ body {
 }
 
 /* ========== 顶部栏 ========== */
-/* 玻璃壳：原来是实心白，现在压到 .62/.46 让底版的彩色渐变透出来。
-   文字对比度另行核算过（正文 16.6:1 以上），透明度可以放心给。 */
+/* 玻璃壳：要求"深浅一样透"，所以这一层的 alpha 与
+   html[data-lg-dark] header 那一档完全相同（0.10 / 0.05 / 0.08）。
+   两套主题只差"底色上叠白还是叠黑"，透过度一致 ——
+   以前浅色是 0.62/0.46，等于不透明白，所以总觉得浅色更实。 */
 header {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
   padding: 10px 14px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46));
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 2px 8px rgba(19, 28, 43, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.62);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-radius: var(--r-panel);
+  /* 与深色主题 header 完全同一档 alpha，做到"深浅一样透" */
+  background: linear-gradient(150deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.05) 58%,
+    rgba(255, 255, 255, 0.08) 100%);
+  background-color: transparent;
+  border: 1px solid var(--shell-line);
+  box-shadow: var(--shadow-md), inset 0 1px 0 var(--hairline-hi);
+  backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-shell)) saturate(190%);
 }
 @media (prefers-reduced-transparency: reduce) {
   header { background: #ffffff; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -41,27 +266,12 @@ h1 { font-size: 22px; font-weight: 600; }
 }
 
 .actions { display: flex; gap: 8px; margin-left: auto; }
-
-.actions button {
-  padding: 8px 18px;
-  border: none;
-  border-radius: 6px;
-  color: #3a4a4a;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: background 0.15s;
-}
 .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-#add-btn             { background: #A8BBA2; }
-#add-btn:hover       { background: #97AB91; }
-#reset-floating-btn  { background: #C9BBA8; }
-#reset-floating-btn:hover { background: #B8AA97; }
-#refresh-btn         { background: #A1B2BD; }
-#refresh-btn:hover   { background: #90A2AD; }
-#settings-btn        { background: #C1A9B0; }
-#settings-btn:hover  { background: #B199A0; }
+/* ★ 原来这里给四个按钮各配了一个**实心色**（#A8BBA2/#C9BBA8/#A1B2BD/#C1A9B0）。
+   它们在文件里比上面的玻璃规则更靠后，所以把那层玻璃整个盖掉了 ——
+   结果只有后来单独改过的 #add-btn 是玻璃，其余三个还是实心色块。
+   现在四个按钮统一走玻璃，颜色差异交给强调色与状态色，不再各配一个实心色。 */
 
 /* ========== 顶部提示条 ========== */
 .banner {
@@ -119,11 +329,14 @@ h1 { font-size: 22px; font-weight: 600; }
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-bottom: 2px solid transparent;
   border-radius: 12px 12px 0 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.70), rgba(255, 255, 255, 0.52));
+  /* 玻璃要"透"：底色只留薄薄一层白，主要靠 backdrop-filter 把底版糊进来。
+     以前是 0.70/0.52 —— 那基本是不透明白，所以两套主题里浅色总显得更实。
+     深色主题的 0.09/0.05 是"在深底上提亮一档"，与这里的 0.34/0.18 观感对齐。 */
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.18));
   background-clip: padding-box;
-  backdrop-filter: blur(10px) saturate(180%);
-  -webkit-backdrop-filter: blur(10px) saturate(180%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(16px) saturate(190%);
+  -webkit-backdrop-filter: blur(16px) saturate(190%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
   position: relative;
 }
 .tabs::after {
@@ -186,14 +399,10 @@ h1 { font-size: 22px; font-weight: 600; }
   border-color: rgba(255, 255, 255, 0.80);
 }
 .item:active { transform: translateY(0) scale(0.998); box-shadow: 0 2px 8px rgba(19, 28, 43, 0.06); }
-.item.urgent  { background: linear-gradient(135deg, rgba(252, 206, 186, 0.92), rgba(255, 231, 217, 0.80)); border-color: rgba(255, 255, 255, 0.55); }
-.item.expired { background: linear-gradient(135deg, rgba(238, 200, 200, 0.92), rgba(250, 232, 231, 0.80)); border-color: rgba(255, 255, 255, 0.55); }
-.item.done {
-  opacity: 0.72;
-  background: rgba(255, 255, 255, 0.30);
-  border-color: rgba(255, 255, 255, 0.34);
-  box-shadow: none;
-}
+/* 紧急 / 过期 / 已完成 的底色不在这里写：统一由文件末尾的 --row-tint 给出。
+   （原来这里有三条硬编码渐变：紧急暖黄、过期暖粉、完成 30% 白 + opacity .72。
+     它们与末尾的 .item 规则特异性相同，按源码顺序会把新配色盖掉，
+     紧急卡因此一直显示成黄色玻璃。） */
 .item.done .title .text { text-decoration: line-through; }
 
 /* 勾选框：14px 方形圆角矩形，曲率与行的圆角平行。
@@ -566,3 +775,1188 @@ h1 { font-size: 22px; font-weight: 600; }
   font-weight: 600;
 }
 
+
+
+/* ============================================================================
+   主窗口 · 玻璃材质与主题覆盖（在原文之后，层叠上生效）
+   ----------------------------------------------------------------------------
+   这次改动只换"框"的材质、颜色、圆角与动效：
+   DOM、类名、文案、交互逻辑一律不动；Python 侧 _calc_height 配对不动。
+
+   两套主题，各自成套：
+     亮主题（默认）  晨雾底版 → 浅色底板 → 墨字 → 鲜红/天蓝 标识
+     暗主题          黄昏底版 → 深色底板 → 白字
+   由 <html data-lg-dark> 决定，解析在 theme-boot.js（三态 auto/light/dark）。
+
+   浮窗行距是硬约束（与 controller.py 的 _calc_height 配对）：
+     .header 44px、.item height 16.19px + margin-bottom 3px、不加 border/上下内边距。
+   ========================================================================== */
+/* ============================================================================
+   主窗口 · 液态玻璃覆盖样式（预览用；加载顺序在 main.css 之后）
+   只在内存里注入，不改 Work/web/main.css。
+   ----------------------------------------------------------------------------
+   只改材质 / 颜色 / 圆角 / 动效；DOM、类名、文案、交互一律不动。
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 底版与表面 */
+html { background: var(--page); }
+body {
+  /* 底版分两层：
+     ::before = 两个大范围色晕（极慢漂移，只动 transform），
+     ::after  = 一层 2.6% 不透明度的细颗粒，让大块渐变有"实体感"而不是塑料。
+     两者都是纯装饰，且透明度极低 —— 设计理念里禁止的是"装饰性渐变/发光"，
+     这里的作用是给玻璃一个可折射的东西，信息全部在玻璃之上。 */
+  background: linear-gradient(158deg, #eef4fd 0%, #eaf1fb 46%, #f3f6fc 100%);
+  background-attachment: fixed;
+  color: var(--ink);
+  padding: 20px 22px 24px;
+  min-height: 100dvh;
+  isolation: isolate;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: -22%;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 44% at 14% 10%, rgba(96, 150, 235, 0.24), transparent 70%),
+    radial-gradient(34% 40% at 88% 78%, rgba(178, 200, 236, 0.22), transparent 72%),
+    radial-gradient(30% 34% at 70% 6%, rgba(198, 216, 244, 0.20), transparent 72%);
+  filter: blur(22px);
+  animation: hw-drift 44s var(--ease-in-out) infinite alternate;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/></filter><rect width='180' height='180' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+  opacity: 0.026;
+  mix-blend-mode: overlay;
+}
+@keyframes hw-drift {
+  from { transform: translate3d(-1.2%, -0.8%, 0) scale(1); }
+  to   { transform: translate3d(1.4%, 1%, 0) scale(1.04); }
+}
+html[data-lg-dark] body { background: linear-gradient(158deg, #0d1220 0%, #101627 46%, #171326 100%); }
+  body::before {
+    background:
+      radial-gradient(38% 44% at 14% 10%, rgba(70, 110, 210, 0.30), transparent 70%),
+      radial-gradient(34% 40% at 88% 78%, rgba(180, 110, 70, 0.22), transparent 72%),
+      radial-gradient(30% 34% at 70% 6%, rgba(120, 96, 200, 0.20), transparent 72%);
+  }
+  body::after {opacity: 0.022; }
+@media (prefers-reduced-transparency: reduce) {
+  body::before, body::after { display: none; }
+  body { background: var(--page); }
+}
+
+/* ------------------------------------------------------------------ 顶部栏 */
+/* 玻璃壳。★ 这一处是层叠上的最终值（文件里靠后），改透度改这里。
+   要求"深浅一样透"：浅色与 html[data-lg-dark] header 用完全相同的 alpha
+   （0.10 / 0.05 / 0.08）。以前浅色是 0.70/0.54/0.60，等于不透明白，
+   所以浅色主题的工具栏看起来总比深色"实"。 */
+header {
+  position: relative;
+  isolation: isolate;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 9px 12px 9px 16px;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--shell-line);
+  background: linear-gradient(150deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.05) 58%,
+    rgba(255, 255, 255, 0.08) 100%);
+  background-color: transparent;
+  box-shadow: var(--shadow-md), inset 0 1px 0 var(--hairline-hi);
+  backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  overflow: hidden;
+}
+header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(140% 100% at 2% -30%, rgba(255, 255, 255, 0.52), transparent 58%),
+    linear-gradient(100deg, rgba(255, 255, 255, 0.24), transparent 46%, rgba(255, 255, 255, 0.16));
+}
+header::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: calc(var(--r-panel) - 1px);
+  pointer-events: none;
+  border: 1px solid var(--rim);
+}
+html[data-lg-dark] header {
+    background: linear-gradient(150deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.05) 58%,
+      rgba(255, 255, 255, 0.08) 100%);
+  }
+  header::before {opacity: 0.6; }
+@media (prefers-reduced-transparency: reduce) {
+  header, header::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  header { background: var(--surface); }
+}
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.loading-hint {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  /* 抓取提示会随进度改写文案：数字用等宽字形，文字跳动更小 */
+  font-variant-numeric: tabular-nums;
+}
+.loading-hint::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+  animation: hw-breathe 2.4s var(--ease-in-out) infinite;
+  vertical-align: 1px;
+}
+.loading-hint:empty::before { display: none; }
+@keyframes hw-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+
+.actions { gap: 6px; }
+
+/* 按钮：透明玻璃衬底 + 受光描边。primary 是全站唯一"实心强调色"按钮。
+   原来的四个彩色按钮（绿/棕/灰蓝/粉）没有语义区分，属于"彩色按钮排排站"，
+   收敛为一枚实心 primary + 三枚中性玻璃。类名与禁用语义不动。 */
+.actions button,
+.banner button,
+.section-actions button,
+.site-row button,
+.modal-actions button,
+.del {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--shell-line);
+  border-radius: var(--r-ctl);
+  /* 玻璃：底色比以前更淡，让底版从按钮里透出来（深色主题靠一层浅色叠加达到同样的"透"）。
+     墨字压在 ~#aab8c8 这一档最坏底色上仍有 8:1 以上，所以可以把 alpha 压到这么低。 */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.40), rgba(255, 255, 255, 0.22));
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--hairline-hi), 0 1px 2px rgba(16, 24, 40, 0.06);
+  backdrop-filter: blur(var(--blur-row)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-row)) saturate(180%);
+  transition: background var(--t-state) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              color var(--t-state) var(--ease-out),
+              box-shadow var(--t-state) var(--ease-out),
+              transform var(--t-press) var(--ease-out);
+}
+
+.actions button { font-size: 13px; padding: 7px 14px; min-height: 32px; }
+
+/* ----------------------------------------------------------------------------
+   右上角四枚功能按钮：**同一档透**，各自一种颜色
+   ----------------------------------------------------------------------------
+   问题：前三个用的是 0.40/0.22 白玻璃，第四个（添加任务）用 0.10/0.06 蓝色淡染。
+   数字差 4 倍，所以浅色主题下前三个看着像白块、只有添加任务像玻璃。
+   现在四枚**透度完全一致**（与 .item / .header 同一档），差异只交给色相：
+     添加任务 → 蓝（主操作）   刷新 → 青   重置浮窗 → 紫   设置 → 中性灰蓝
+   这样既"看着一样透"，又不会变成"彩色按钮排排站"（色相都很低饱和）。
+   ---------------------------------------------------------------------------- */
+#add-btn {
+  background: linear-gradient(180deg, rgba(47, 95, 224, 0.16), rgba(47, 95, 224, 0.07));
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+#add-btn:hover {
+  background: linear-gradient(180deg, rgba(47, 95, 224, 0.26), rgba(47, 95, 224, 0.14));
+  border-color: var(--accent);
+}
+#refresh-btn {
+  background: linear-gradient(180deg, rgba(20, 150, 170, 0.16), rgba(20, 150, 170, 0.07));
+  border-color: rgba(20, 150, 170, 0.34);
+  color: #0d5a66;
+}
+#refresh-btn:hover {
+  background: linear-gradient(180deg, rgba(20, 150, 170, 0.26), rgba(20, 150, 170, 0.14));
+  border-color: rgba(20, 150, 170, 0.60);
+}
+#reset-floating-btn {
+  background: linear-gradient(180deg, rgba(126, 76, 214, 0.16), rgba(126, 76, 214, 0.07));
+  border-color: rgba(126, 76, 214, 0.34);
+  color: #4a2a8c;
+}
+#reset-floating-btn:hover {
+  background: linear-gradient(180deg, rgba(126, 76, 214, 0.26), rgba(126, 76, 214, 0.14));
+  border-color: rgba(126, 76, 214, 0.60);
+}
+#settings-btn {
+  background: linear-gradient(180deg, rgba(90, 106, 132, 0.16), rgba(90, 106, 132, 0.07));
+  border-color: rgba(90, 106, 132, 0.34);
+  color: #33415c;
+}
+#settings-btn:hover {
+  background: linear-gradient(180deg, rgba(90, 106, 132, 0.26), rgba(90, 106, 132, 0.14));
+  border-color: rgba(90, 106, 132, 0.60);
+}
+
+/* 暗主题：同样的四色，各自提亮一档（压在深底上才看得见） */
+html[data-lg-dark] #add-btn {
+  background: linear-gradient(180deg, rgba(126, 162, 255, 0.20), rgba(126, 162, 255, 0.10));
+  border-color: rgba(126, 162, 255, 0.34);
+  color: #dce8ff;
+}
+html[data-lg-dark] #add-btn:hover {
+  background: linear-gradient(180deg, rgba(126, 162, 255, 0.30), rgba(126, 162, 255, 0.18));
+}
+html[data-lg-dark] #refresh-btn {
+  background: linear-gradient(180deg, rgba(86, 214, 226, 0.20), rgba(86, 214, 226, 0.10));
+  border-color: rgba(86, 214, 226, 0.34);
+  color: #bff0f6;
+}
+html[data-lg-dark] #refresh-btn:hover {
+  background: linear-gradient(180deg, rgba(86, 214, 226, 0.30), rgba(86, 214, 226, 0.18));
+}
+html[data-lg-dark] #reset-floating-btn {
+  background: linear-gradient(180deg, rgba(184, 152, 255, 0.20), rgba(184, 152, 255, 0.10));
+  border-color: rgba(184, 152, 255, 0.34);
+  color: #ded0ff;
+}
+html[data-lg-dark] #reset-floating-btn:hover {
+  background: linear-gradient(180deg, rgba(184, 152, 255, 0.30), rgba(184, 152, 255, 0.18));
+}
+html[data-lg-dark] #settings-btn {
+  background: linear-gradient(180deg, rgba(176, 190, 214, 0.18), rgba(176, 190, 214, 0.09));
+  border-color: rgba(176, 190, 214, 0.32);
+  color: #e2e9f5;
+}
+html[data-lg-dark] #settings-btn:hover {
+  background: linear-gradient(180deg, rgba(176, 190, 214, 0.28), rgba(176, 190, 214, 0.16));
+}
+.actions button:hover,
+.banner button:hover,
+.section-actions button:hover,
+.site-row button:hover,
+.modal-actions button:hover,
+.del:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.44));
+  border-color: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+.actions button:active,
+.banner button:active,
+.section-actions button:active,
+.site-row button:active,
+.modal-actions button:active,
+.del:active { transform: translateY(1px) scale(0.99); }
+.actions button:focus-visible,
+.banner button:focus-visible,
+.section-actions button:focus-visible,
+.site-row button:focus-visible,
+.modal-actions button:focus-visible,
+.del:focus-visible,
+.switch:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.actions button:disabled,
+.banner button:disabled,
+.section-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 主操作（新增任务）已改成"强调玻璃"：样式在下面 986 行附近那一处，
+   这里不再放实心蓝渐变 —— 两处都写会互相盖，而且实心色块与其余玻璃按钮不同材质。 */
+
+html[data-lg-dark] .actions button,
+html[data-lg-dark] .banner button,
+html[data-lg-dark] .section-actions button,
+html[data-lg-dark] .site-row button,
+html[data-lg-dark] .modal-actions button,
+html[data-lg-dark] .del {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
+}
+html[data-lg-dark] .actions button:hover,
+html[data-lg-dark] .banner button:hover,
+html[data-lg-dark] .section-actions button:hover,
+html[data-lg-dark] .site-row button:hover,
+html[data-lg-dark] .modal-actions button:hover,
+html[data-lg-dark] .del:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.12));
+}
+/* 暗主题的主按钮样式在 995 行附近（强调玻璃），这里不再重复写实心蓝。 */
+@media (prefers-reduced-transparency: reduce) {
+  .actions button, .banner button, .section-actions button, .site-row button,
+  .modal-actions button, .del { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--surface-hi); }
+}
+
+/* -------------------------------------------------------------------- 提示条 */
+.banner {
+  position: relative;
+  isolation: isolate;
+  padding: 12px 15px;
+  border-radius: var(--r-row);
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  border: 1px solid var(--shell-line);
+  backdrop-filter: blur(var(--blur-row)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--blur-row)) saturate(160%);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+.banner::after {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: var(--r-row) 0 0 var(--r-row);
+  background: currentColor;
+  opacity: 0.75;
+}
+/* 提示条（错误 / 需要登录 / 启动提示）：语义色淡染的玻璃，和任务卡同一套做法：
+   左端语义色 → 右端收口，**两端都是半透明的**，底版从玻璃里透出来。
+   原来 warn 是 0.92/0.86、err 是 0.94/0.88 的近实色，backdrop-filter 形同虚设。 */
+.banner { --banner-end: rgba(255, 255, 255, 0.04); }   /* 浅色：右端收到≈底版 */
+.banner.warn {
+  background: linear-gradient(96deg, rgba(255, 200, 100, 0.34) 0%, var(--banner-end) 100%);
+  color: var(--warn);
+  border-color: var(--warn-line);
+}
+.banner.err {
+  background: linear-gradient(96deg, rgba(255, 120, 105, 0.34) 0%, var(--banner-end) 100%);
+  color: var(--danger);
+  border-color: var(--danger-line);
+}
+.banner button {
+  margin-top: 8px;
+  padding: 6px 14px;
+  min-height: 28px;
+  font-size: 12.5px;
+  margin-right: 8px;
+}
+.banner .login-hint { font-size: 12px; color: var(--ink-2); opacity: 1; }
+.banner .startup-detail {
+  margin-top: 6px;
+  font-size: 12px;
+  font-family: Consolas, "Courier New", monospace;
+  word-break: break-all;
+  color: var(--ink-2);
+  opacity: 1;
+}
+/* 暗主题提示条：同样"左端语义色 → 右端收口"，但收口要收在**不透明的深色**上
+   （浅色主题是收到白）。用半透明的深色收口，右端会露出底版、发虚，
+   和任务卡右端原来是白斑是同一类问题。
+   ★ 原来这里只有第一行带 html[data-lg-dark] 前缀，`.banner.err` 那一行没带 ——
+     深色渐变被无条件套到浅色主题上（又是"分组只加第一个前缀"那个毛病）。 */
+html[data-lg-dark] .banner.warn {
+  --banner-end: rgba(12, 18, 32, 0.10);
+  background: linear-gradient(96deg, rgba(196, 142, 48, 0.34) 0%, var(--banner-end) 100%);
+}
+html[data-lg-dark] .banner.err {
+  --banner-end: rgba(14, 16, 30, 0.10);
+  background: linear-gradient(96deg, rgba(200, 74, 60, 0.36) 0%, var(--banner-end) 100%);
+}
+
+/* -------------------------------------------------------------------- 标签条 */
+/* 原来是"底部 2px 渐变线"收尾，现在收进一块玻璃壳里：底部一条细线 + 选中胶囊。 */
+.tabs {
+  position: relative;
+  isolation: isolate;
+  gap: 3px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--shell-line);
+  border-bottom-color: var(--hairline);
+  border-radius: var(--r-panel);
+  /* 与深色主题的 .tabs 完全同一档 alpha（0.09 / 0.05），做到"深浅一样透" */
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.05));
+  background-color: transparent;
+  backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline-hi);
+  overflow: hidden;
+}
+.tabs::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(120% 100% at 0% -40%, rgba(255, 255, 255, 0.46), transparent 60%);
+}
+.tabs::after { display: none; }   /* 旧的花哨渐变分割线：与"一条细线"规则冲突 */
+html[data-lg-dark] .tabs {background: linear-gradient(150deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.05)); }
+.tab {
+  padding: 7px 14px;
+  min-height: 32px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  border-radius: var(--r-ctl);
+  transition: background var(--t-state) var(--ease-out),
+              color var(--t-state) var(--ease-out),
+              box-shadow var(--t-state) var(--ease-out),
+              transform var(--t-press) var(--ease-out);
+}
+.tab:hover { color: var(--ink); background: rgba(255, 255, 255, 0.22); }
+html[data-lg-dark] .tab:hover {background: rgba(255, 255, 255, 0.08); }
+.tab:active { transform: scale(0.985); }
+.tab.active {
+  /* 选中态也用玻璃：叠一层强调色淡染 + 强调色描边，
+     不再是实心蓝块 —— 整条标签条里只有它是实心的话，会像"贴上去的"。 */
+  color: var(--accent-ink);
+  background: linear-gradient(180deg, var(--accent-wash), rgba(47, 95, 224, 0.06));
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--accent-line), inset 0 1px 0 rgba(255, 255, 255, 0.30);
+}
+html[data-lg-dark] .tab.active {
+  color: #dce8ff;
+  background: linear-gradient(180deg, rgba(126, 162, 255, 0.22), rgba(126, 162, 255, 0.10));
+  box-shadow: inset 0 0 0 1px rgba(126, 162, 255, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+.tab .count {
+  display: inline-block;
+  min-width: 20px;
+  text-align: center;
+  background: var(--track);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--t-state) var(--ease-out), color var(--t-state) var(--ease-out);
+}
+/* 注意：这里必须用 .tab > .count（直接子级）。
+   原来的 `.tab.active .count`（后代选择器）会连"标签条里面的 .badge"一起命中，
+   把任务列表第一行的来源标签也刷成实心强调色 —— 实测确实发生了。 */
+.tab > .count { background: var(--track); color: var(--ink-2); }
+/* ★ 浅色主题：选中标签的计数胶囊原来是"深灰底 + 白字"，
+   于是切换「未完成 / 已完成」时这个数字在白与黑之间跳（未选中态是 --ink-2 的墨色）。
+   现在浅色统一成墨字：胶囊底改成很淡的白（压在 #2d5bd1 上是 #5f82dc），
+   墨字对比度约 4.5:1。深色主题那一行在下面单独声明，仍是白字 —— 不受影响。 */
+.tab.active > .count { background: rgba(255, 255, 255, 0.20); color: #101828; }
+html[data-lg-dark] .tab.active > .count {background: rgba(10, 16, 32, 0.34); color: #eef2ff; }
+
+/* -------------------------------------------------------------------- 任务行 */
+.list { gap: 7px; }
+
+.item {
+  position: relative;
+  isolation: isolate;
+  padding: 13px 16px 13px 13px;
+  border-radius: var(--r-row);
+  border: 1px solid var(--row-line);
+  /* 状态色从左端渐隐到右端，**两层都是半透明的** —— 玻璃要尽量透，
+     底版一直从卡片里透出来，不靠不透明色去盖。
+     ★ 右端收在"和底版同明暗的极低 alpha 色"上（--row-end），不是收到白/黑：
+         · 浅色主题右端 → alpha 0.04 的白（压在浅底版上 ≈ 底版本身）
+         · 深色主题右端 → alpha 0.10 的深海军蓝（压在深底版上不亮，也不变白斑）
+       写死成不透明的白，深色主题右端就会亮成一块白斑；
+       写死成半透明的白，深色主题右端又会渐隐成"透明"、露出亮底版 —— 同样发白。
+       所以右端必须是"**该主题的**低 alpha 色"，而不是"低 alpha 的白"。
+     色相由 --row-tint 按状态与主题给出（紧急红 / 待办蓝 / 完成灰）。 */
+  --row-end: rgba(255, 255, 255, 0.04);
+  background: linear-gradient(96deg, var(--row-tint) 0%, var(--row-end) 100%);
+  background-color: transparent;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 var(--hairline-hi);
+  backdrop-filter: blur(var(--blur-row)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-row)) saturate(190%);
+  transition: transform var(--t-move) var(--ease-out),
+              box-shadow var(--t-move) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              background var(--t-state) var(--ease-out),
+              opacity var(--t-state) var(--ease-out);
+}
+.item::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  /* 幅度压得很低：透明度要留给底版，不能变成一块白斑 */
+  background: radial-gradient(130% 90% at 4% -40%, rgba(255, 255, 255, 0.20), transparent 62%);
+}
+/* 作者式时刻：指针落在一条任务上，这块玻璃"变清"（自身底色变淡、模糊增强）并抬升。
+   只动 transform / 颜色 / 阴影 / 模糊，不触发布局属性。 */
+.item:hover {
+  transform: translateY(-2px) scale(1.006);
+  border-color: var(--row-line);
+  /* 悬停只是让"收口"来得更早一点：色相与右端颜色都不变 */
+  background: linear-gradient(96deg, var(--row-tint) 0%, var(--row-end) 78%);
+  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.13), 0 2px 6px rgba(16, 24, 40, 0.07),
+              inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+}
+.item:active { transform: translateY(0) scale(0.998); }
+html[data-lg-dark] .item::before { opacity: 0.55; }
+@media (prefers-reduced-transparency: reduce) {
+  .item { background: var(--surface-row); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .item:hover { background: var(--surface-hi); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* 紧急 / 过期 / 已完成：**底色统一交给 --row-tint 那一套**（见文件末尾的任务行配色）。
+   ★ 这里原来各自写了一条硬编码 background（紧急是暖黄 rgba(255,232,208,.92)、
+     过期是暖粉、完成是 42% 白 + opacity .62）。它们和末尾的 .item 规则**特异性相同**，
+     而 CSS 在同特异性下按源码顺序取后者 —— 这两处谁在后面谁生效，
+     结果就是"紧急卡显示成黄色玻璃"。现在把这些重复声明删掉，只留一处来源。 */
+
+/* 已完成：靠 --row-tint 的灰玻璃表达层级，不再整块降透明度
+   （降透明度会把文字一起弄浅，过期那种"要深"的诉求正好相反）。 */
+.item.done { box-shadow: none; }
+.item.done::before { opacity: 0.3; }
+.item.done .title .text { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+/* 勾选框：14px 方形圆角（曲率与行圆角平行，--r-ctl 减去内侧距）。
+   保留原生 input 的语义/键盘/Tab 序；勾是矢量（旋转边框），不是字符。
+   悬停时轻微右移 —— 与行的"抬起"一起构成反馈，不做任何纵向位移。
+   命中区：可视方块仍是 15px，但用不参与布局的 ::before 把可点区域撑到
+   24×24（键盘/触控硬指标）。行高由内容决定，所以不会把行撑高。 */
+.item input[type=checkbox] {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  margin: 0 20px 0 0;
+  border: 1.5px solid rgba(16, 24, 40, 0.50);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.10);
+  transition: transform var(--t-move) var(--ease-out),
+              background var(--t-state) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              box-shadow var(--t-state) var(--ease-out);
+}
+.item input[type=checkbox]::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  /* 不可见，只用来扩大命中区；绝对定位，不参与布局 */
+  background: transparent;
+}
+.item input[type=checkbox]::after {
+  width: 4.4px;
+  height: 8px;
+  border-width: 0 2px 2px 0;
+}
+.item input[type=checkbox]:hover {
+  transform: scale(1.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash), inset 0 1px 2px rgba(16, 24, 40, 0.08);
+}
+.item input[type=checkbox]:checked {
+  background: linear-gradient(180deg, #4272ea, var(--accent));
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px rgba(47, 95, 224, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.item input[type=checkbox]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+html[data-lg-dark] .item input[type=checkbox] { border-color: rgba(255, 255, 255, 0.42); background: rgba(255, 255, 255, 0.10); }
+  .item input[type=checkbox]:checked {background: linear-gradient(180deg, #8dabff, #5f86f7); border-color: #7ea2ff; }
+
+.item .info { gap: 4px; }
+.title {
+  font-size: 14.5px;
+  font-weight: 500;
+  margin-bottom: 3px;
+  gap: 7px;
+  letter-spacing: 0.005em;
+}
+.title .text { color: var(--ink); }
+.title .text.link { color: var(--accent); font-weight: 500; }
+.title .text.link:hover { text-decoration: underline; text-underline-offset: 2px; }
+html[data-lg-dark] .title .text {color: var(--ink); }
+
+/* 标签：小玻璃片。第一格（来源）用强调色玻璃，第二格（课程）用中性玻璃。
+   曲率比行圆角小一档，看起来仍是圆角矩形而不是胶囊。 */
+.badge {
+  padding: 0 7px;
+  min-height: 18px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  border-radius: 6px;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(6px) saturate(160%);
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+}
+.title .badge + .badge,
+.badge.manual + .badge {
+  background: rgba(16, 24, 40, 0.06);
+  color: var(--ink-2);
+  border-color: var(--hairline);
+  box-shadow: none;
+}
+.badge.manual {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+}
+html[data-lg-dark] .title .badge + .badge,
+html[data-lg-dark] .badge.manual + .badge {background: rgba(255, 255, 255, 0.08); color: var(--ink-2); border-color: rgba(255, 255, 255, 0.12); }
+
+.meta {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  /* 截止时间是"数据"：用等宽数字，纵列对齐 */
+  font-variant-numeric: tabular-nums;
+}
+/* .meta 的颜色统一由文件末尾的 --row-ink-2 给出（带状态色相），这里不再单独写死 */
+
+.days {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-left: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+}
+/* .days 同理：颜色与字重由末尾的 --row-ink-2 统一给出 */
+  .item.expired .days { color: #ffb3a6; }
+  .item.done .days {color: var(--ink-3); }
+
+.del {
+  margin-left: 10px;
+  padding: 5px 11px;
+  min-height: 26px;
+  font-size: 12px;
+  color: var(--ink-2);
+  border-color: var(--hairline);
+  background: rgba(255, 255, 255, 0.44);
+  opacity: 0.72;
+  box-shadow: none;
+}
+.item:hover .del, .del:focus-visible { opacity: 1; }
+.del:hover {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border-color: var(--danger-line);
+}
+html[data-lg-dark] .del {background: rgba(255, 255, 255, 0.06); }
+
+/* -------------------------------------------------------------------- 空状态 */
+.empty { padding: 56px 20px; color: var(--ink-3); font-size: 14.5px; }
+.empty .msg {
+  color: var(--ok);
+  font-weight: 500;
+  font-size: 16.5px;
+  letter-spacing: 0.01em;
+}
+html[data-lg-dark] .empty .msg {color: var(--ok); }
+
+/* ---------------------------------------------------------------------- 弹窗 */
+/* 遮罩刻意很淡：它的作用是"把注意力收到弹窗上"，不是把底版压暗。
+   原来的 0.34 黑 + 6px 模糊会把弹窗里的字一起压灰，浅色主题下尤其明显。 */
+.modal-bg {
+  background: rgba(14, 20, 34, 0.14);
+  backdrop-filter: blur(4px) saturate(120%);
+  -webkit-backdrop-filter: blur(4px) saturate(120%);
+}
+.modal-bg.open .modal { animation: hw-overlay-in var(--t-over) var(--ease-out) both; }
+@keyframes hw-overlay-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+.modal {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--r-panel);
+  padding: 22px 24px 24px;
+  border: 1px solid var(--shell-line);
+  /* 玻璃要"透"，两套主题一致：
+     底色只留薄薄一层白（0.10/0.05），主要靠 backdrop-filter 把底版糊进来。
+     以前浅色是 0.90/0.80 + --surface，等于一块不透明的白板 ——
+     所以浅色弹窗看着是"白框"，深色才是玻璃。 */
+  background: linear-gradient(160deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.05) 58%,
+    rgba(255, 255, 255, 0.08) 100%);
+  background-color: transparent;
+  box-shadow: var(--shadow-lg), inset 0 1px 0 var(--hairline-hi);
+  backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--blur-shell)) saturate(190%);
+  max-height: 82vh;
+}
+.modal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(120% 80% at 8% -20%, rgba(255, 255, 255, 0.30), transparent 58%);
+}
+.modal h2 {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 16px;
+  letter-spacing: 0.01em;
+}
+html[data-lg-dark] .modal-bg { background: rgba(4, 8, 16, 0.20); }
+/* 暗主题弹窗：**深色玻璃**，比浅色那一档更沉。
+   浅色是"薄白玻璃压在浅底上"，暗主题照搬会得到一块发灰的浅玻璃
+   （实测合成底 ≈ #252a36）—— 白字浮不出来，就是"看不清"。
+   这里改成两层：先铺一层很深的底，再叠薄白玻璃做反光。
+   底色的 alpha 决定"有多沉"，白玻璃那层决定"还是不是玻璃"。 */
+html[data-lg-dark] .modal {
+  /* ★ 与浅色**同一条白玻璃**（0.10 / 0.05 / 0.08），只在下面多一层**很薄**的暗压底。
+     以前这里是 rgba(9,13,22,0.78) 的近乎不透明深板 —— 那等于把"玻璃"换成了"墙"，
+     与浅色弹窗的调性完全对不上（用户反馈"深色设置又不够透明了"）。
+     暗压底只负责一件事：让白字在玻璃上浮出来。
+     0.42 这一档：正文对比度仍很高，且底版渐变能透出来（不再是一块实心板）。 */
+  background:
+    linear-gradient(160deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.05) 58%,
+      rgba(255, 255, 255, 0.08) 100%),
+    linear-gradient(160deg, rgba(9, 13, 22, 0.42), rgba(13, 18, 30, 0.36));
+  background-color: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+html[data-lg-dark] .modal::before { opacity: 0.5; }
+@media (prefers-reduced-transparency: reduce) {
+  .modal-bg { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .modal { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* 表单：label 在上、输入框够实、焦点环可见、占位符对比度达标。
+   弹窗内的站点行/开关行不再套一层玻璃卡（禁止嵌套玻璃）。 */
+.field { margin-bottom: 13px; }
+.field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+.field input {
+  width: 100%;
+  padding: 9px 12px;
+  min-height: 38px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--ink);
+  border: 1px solid rgba(16, 24, 40, 0.16);
+  border-radius: var(--r-ctl);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.06);
+  transition: border-color var(--t-state) var(--ease-out),
+              box-shadow var(--t-state) var(--ease-out),
+              background var(--t-state) var(--ease-out);
+}
+.field input::placeholder { color: var(--ink-3); opacity: 1; }
+.field input:hover { border-color: rgba(16, 24, 40, 0.26); }
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--accent-wash), inset 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+.field .hint { font-size: 12px; color: var(--ink-3); margin-top: 5px; }
+html[data-lg-dark] .field input { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.16); color: var(--ink); }
+  .field input::placeholder { color: var(--ink-3); }
+  .field input:hover { border-color: rgba(255, 255, 255, 0.28); }
+  .field input:focus {border-color: var(--accent); background: rgba(255, 255, 255, 0.12); }
+.modal .error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin-bottom: 10px;
+  min-height: 18px;
+}
+
+.modal-actions { gap: 8px; margin-top: 6px; }
+.modal-actions button { padding: 8px 20px; min-height: 36px; font-size: 13.5px; }
+.modal-actions .cancel { color: var(--ink-2); }
+.modal-actions .ok {
+  background: linear-gradient(180deg, #4272ea, var(--accent) 62%, #2a55cd);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 2px 8px rgba(47, 95, 224, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.40);
+}
+.modal-actions .ok:hover {
+  background: linear-gradient(180deg, #4c7bff, var(--accent-hover) 62%, #2550c0);
+  color: #ffffff;
+}
+.modal-actions .cancel:hover { color: var(--ink); }
+html[data-lg-dark] .modal-actions .ok {background: linear-gradient(180deg, #8dabff, #5f86f7 62%, #3f6ef0); color: #0a1020; }
+
+/* ---------------------------------------------------------- 设置 / 站点 / 开关 */
+.section { padding: 15px 0; border-bottom: 1px solid var(--hairline); }
+.section h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 12px;
+  letter-spacing: 0.01em;
+}
+.section-actions { gap: 10px; margin-top: 12px; }
+.section-actions button { padding: 7px 18px; min-height: 34px; font-size: 13px; }
+.apply-hint { font-size: 12px; color: var(--ink-3); }
+.apply-hint.ok   { color: var(--ok); }
+.apply-hint.warn { color: #b07d10; }
+html[data-lg-dark] .apply-hint.warn {color: var(--warn); }
+
+/* 站点行：设置弹窗里的事实信息行 —— 走与任务卡同一套玻璃语言 */
+.site-row {
+  padding: 11px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-ctl);
+  margin-bottom: 7px;
+  gap: 9px;
+  background: linear-gradient(96deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.22) 100%);
+  backdrop-filter: blur(var(--blur-row)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur-row)) saturate(180%);
+  transition: background var(--t-state) var(--ease-out),
+              border-color var(--t-state) var(--ease-out),
+              transform var(--t-move) var(--ease-out);
+}
+.site-row:hover {
+  background: linear-gradient(96deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.34) 100%);
+  border-color: rgba(16, 24, 40, 0.14);
+  transform: translateX(2px);
+}
+html[data-lg-dark] .site-row {
+  background: linear-gradient(96deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+html[data-lg-dark] .site-row:hover {
+  background: linear-gradient(96deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0.07) 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.site-row.disabled { opacity: 0.5; }
+.site-row.deleted { background: var(--danger-bg); border-color: var(--danger-line); opacity: 0.75; }
+.site-row.deleted .name { text-decoration: line-through; color: var(--danger-text); }
+.site-row .name { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.site-row .type,
+.site-row .sess,
+.site-row .cred {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  /* 这些是 11px 的小胶囊：语义色只作左端淡染，右端收在白/深底上，
+     与任务卡、提示条同一套做法 —— 不再是各自一块不透明实色。 */
+  background: linear-gradient(96deg, rgba(120, 132, 156, 0.26) 0%, rgba(255, 255, 255, 0.86) 100%);
+  backdrop-filter: blur(8px) saturate(170%);
+  -webkit-backdrop-filter: blur(8px) saturate(170%);
+}
+.site-row .type {
+  background: linear-gradient(96deg, rgba(47, 95, 224, 0.24) 0%, rgba(255, 255, 255, 0.88) 100%);
+  color: var(--accent-ink);
+  border-color: var(--accent-line);
+}
+.site-row .sess.ok {
+  background: linear-gradient(96deg, rgba(42, 150, 90, 0.24) 0%, rgba(255, 255, 255, 0.88) 100%);
+  color: var(--ok);
+  border-color: var(--ok-line);
+}
+.site-row .sess.no,
+.site-row .cred.broken {
+  background: linear-gradient(96deg, rgba(217, 45, 32, 0.24) 0%, rgba(255, 255, 255, 0.88) 100%);
+  color: var(--danger-text);
+  border-color: var(--danger-line);
+}
+.site-row .cred {
+  background: linear-gradient(96deg, rgba(214, 158, 46, 0.28) 0%, rgba(255, 255, 255, 0.88) 100%);
+  color: var(--warn);
+  border-color: var(--warn-line);
+}
+/* 暗主题：右端收到深底上（对应浅色的"收到白"） */
+html[data-lg-dark] .site-row .type,
+html[data-lg-dark] .site-row .sess,
+html[data-lg-dark] .site-row .cred {
+  background: linear-gradient(96deg, rgba(255, 255, 255, 0.16) 0%, rgba(20, 26, 40, 0.72) 100%);
+}
+html[data-lg-dark] .site-row .type {
+  background: linear-gradient(96deg, rgba(126, 162, 255, 0.28) 0%, rgba(20, 26, 40, 0.72) 100%);
+}
+html[data-lg-dark] .site-row .sess.ok {
+  background: linear-gradient(96deg, rgba(72, 190, 120, 0.28) 0%, rgba(20, 26, 40, 0.72) 100%);
+}
+html[data-lg-dark] .site-row .sess.no,
+html[data-lg-dark] .site-row .cred.broken {
+  background: linear-gradient(96deg, rgba(230, 90, 80, 0.30) 0%, rgba(20, 26, 40, 0.72) 100%);
+}
+html[data-lg-dark] .site-row .cred {
+  background: linear-gradient(96deg, rgba(214, 168, 74, 0.30) 0%, rgba(20, 26, 40, 0.72) 100%);
+}
+.site-row button { padding: 5px 12px; min-height: 28px; font-size: 12px; }
+.site-row button.danger { color: var(--danger-text); border-color: var(--danger-line); }
+.site-row button.danger:hover { background: var(--danger-bg); }
+.site-row button.pending { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
+.site-row button.cred-btn { color: var(--warn); border-color: var(--warn-line); background: var(--warn-bg); }
+
+/* 开关：只换颜色，几何完全沿用原文（轨道 38×20、滑块 16、on 时 left 20px）。
+   ★ 几何只在这一处定义。之前覆盖块里又写了一遍 40×22 轨道 + translateX(20px)，
+     与这里的 .switch.on::after { left: 20px } 层叠相加（left 与 transform 各走一次），
+     滑块被推出轨道 —— 就是你看到的"飞走"。 */
+.switch {
+  background: var(--track);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.12);
+  transition: background var(--t-state) var(--ease-out),
+              box-shadow var(--t-state) var(--ease-out);
+}
+.switch.on {
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.switch::after {
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.30);
+}
+/* 滑块位移由原文的 .switch.on::after { left: 20px } 负责，这里不再声明。 */
+
+.auto-row {
+  gap: 12px;
+  padding: 10px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-ctl);
+  background: rgba(255, 255, 255, 0.56);
+}
+html[data-lg-dark] .auto-row {background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.10); }
+.auto-row .label { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.auto-row .status { font-size: 12px; color: var(--ink-3); }
+.auto-row .status.on { color: var(--ok); font-weight: 500; }
+
+/* ------------------------------------------------------------------ 抓取进度 */
+/* 只是文字落在底版上，不加底色、不加边框 —— 与"任务刷新中"同一种观感。 */
+.progress {
+  margin: 4px 0 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.8;
+  letter-spacing: 0.014em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.progress .line .br { color: var(--accent); font-weight: 600; }
+
+/* ------------------------------------------------------------------ 动效兜底 */
+/* 系统要求"减少动态效果"：去掉位移，保留颜色/透明度这档状态反馈。 */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+  .loading-hint::before { animation: none; opacity: 0.85; }
+  .item, .item:hover, .item:active { transform: none; }
+  .site-row, .site-row:hover { transform: none; }
+  .tab:active, .actions button:active, .banner button:active, .section-actions button:active,
+  .site-row button:active, .modal-actions button:active, .del:active { transform: none; }
+  .modal-bg.open .modal { animation-duration: 160ms; }
+  .item input[type=checkbox], .item input[type=checkbox]:hover { transform: none; }
+}
+
+
+
+/* ============================================================================
+   任务行：小方框 + 状态条 + **玻璃的色相**，全部与浮窗同一个颜色语言
+   ----------------------------------------------------------------------------
+   浮窗的分工（见 panel.css / alert.css）：
+     亮   待办 = 天蓝 #0d6efd      紧急 = 深红 #d92d20
+     暗   待办 = 普兰 #1b3a5c      紧急 = 深紫红 #7c2745
+
+   主面板沿用同一套，而且**任务卡自己的玻璃也带这个色**（--row-tint），
+   不再是一律灰白玻璃：
+     紧急 / 过期  → 红玻璃（对应紧急浮窗）
+     普通待办     → 蓝玻璃（对应待办浮窗）
+     已完成       → 灰玻璃（不再吸引注意）
+
+   切主题时这里的 --row-tint / 字色会跟着浮窗一起变（两套主题各有各的值）。
+   ========================================================================== */
+.item {
+  /* 普通待办：蓝色玻璃（与亮主题的待办浮窗 #0d6efd 同色相） */
+  --row-tint:   rgba(13, 110, 253, 0.18);
+  --row-line:   rgba(13, 110, 253, 0.34);
+  --row-ink:    #10306a;   /* 压在蓝玻璃上的墨字（冷、沉，对比度另行核算） */
+  --row-ink-2:  #2a4a80;
+  --row-mark:   #0d6efd;   /* 勾选框实心色 */
+}
+.item.urgent {
+  /* 紧急：**亮红**玻璃（与亮主题紧急浮窗 #d92d20 同色相）。
+     0.24 这一档实测最好：再淡读起来像"粉"，再浓会闷成暗红。 */
+  --row-tint:   rgba(217, 45, 32, 0.24);
+  --row-line:   rgba(217, 45, 32, 0.50);
+  --row-ink:    #6d1106;
+  --row-ink-2:  #8c2818;
+  --row-mark:   #d92d20;
+}
+.item.expired {
+  /* 过期：**比紧急更深**的红，不是"调暗"（不是降透明度）。
+     用更深的红 + 更浓的 alpha，读起来是"这块更重"而不是"这块更淡"。 */
+  --row-tint:   rgba(150, 24, 16, 0.40);
+  --row-line:   rgba(150, 24, 16, 0.62);
+  --row-ink:    #5a0d04;
+  --row-ink-2:  #7a1c0e;
+  --row-mark:   #96180f;
+}
+.item.done {
+  /* 已完成：灰玻璃，不再强调 */
+  --row-tint:   rgba(120, 132, 156, 0.10);
+  --row-line:   rgba(120, 132, 156, 0.26);
+  --row-ink:    #3d4657;
+  --row-ink-2:  #566076;
+  --row-mark:   #8b96a8;
+}
+html[data-lg-dark] .item {
+  /* 暗主题 · 待办：与暗主题待办浮窗的普兰 #1b3a5c 同色相（提亮一档才看得见） */
+  --row-tint:   rgba(106, 166, 245, 0.24);
+  --row-line:   rgba(106, 166, 245, 0.40);
+  --row-ink:    #f2f6ff;
+  --row-ink-2:  #cddbf2;
+  --row-mark:   #6aa6f5;
+  /* 右端：低 alpha 的深色，压在暗底版上几乎只剩玻璃本身 —— 透，但不发白 */
+  --row-end:    rgba(12, 18, 32, 0.10);
+}
+html[data-lg-dark] .item.urgent {
+  /* 暗主题 · 紧急：与暗主题紧急浮窗的深紫红 #7c2745 同色相 */
+  --row-tint:   rgba(184, 73, 110, 0.34);
+  --row-line:   rgba(196, 92, 128, 0.46);
+  --row-ink:    #ffeef4;
+  --row-ink-2:  #f2cbd9;
+  --row-mark:   #b8496e;
+  --row-end:    rgba(24, 14, 26, 0.12);
+}
+html[data-lg-dark] .item.expired {
+  /* 暗主题 · 过期：比紧急更深一档的紫红 */
+  --row-tint:   rgba(138, 40, 74, 0.50);
+  --row-line:   rgba(160, 58, 94, 0.58);
+  --row-ink:    #ffdfe9;
+  --row-ink-2:  #eeb3c8;
+  --row-mark:   #8a284a;
+  --row-end:    rgba(22, 12, 20, 0.12);
+}
+html[data-lg-dark] .item.done {
+  --row-tint:   rgba(140, 150, 170, 0.12);
+  --row-line:   rgba(140, 150, 170, 0.26);
+  --row-ink:    #c3cbd9;
+  --row-ink-2:  #9aa4b6;
+  --row-mark:   #6b7688;
+  --row-end:    rgba(14, 20, 32, 0.08);
+}
+
+/* 状态色落到具体元素上 */
+.item .title .text { color: var(--row-ink); }
+.item .meta { color: var(--row-ink-2); }
+.item .days { color: var(--row-ink-2); }
+.item.urgent .meta,
+.item.expired .meta,
+.item.urgent .days,
+.item.expired .days { color: var(--row-ink-2); }
+.item.done .days { color: var(--row-ink-2); }
+/* 悬停：只是让"收口"来得更早一点（色相与右端颜色不变），并微抬升 */
+.item:hover {
+  border-color: var(--row-line);
+  background: linear-gradient(96deg, var(--row-tint) 0%, var(--row-end) 78%);
+}
+
+/* 未勾选框：描边用状态色 */
+.item input[type=checkbox] { border-color: var(--row-mark); }
+.item input[type=checkbox]:hover {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--row-mark) 22%, transparent);
+}
+/* 勾选态：实心状态色（原来是固定蓝渐变，看不出紧急与否）。
+   --row-mark 本身在两套主题下都有值，所以这里不需要再加 html[data-lg-dark]。 */
+.item input[type=checkbox]:checked {
+  background: var(--row-mark);
+  border-color: var(--row-mark);
+  box-shadow: none;
+}
+/* 勾是白的；灰底（已完成）上换成深墨，保证勾看得见 */
+.item input[type=checkbox]::after { border-color: #ffffff; }
+.item.done input[type=checkbox]::after { border-color: #101828; }
+html[data-lg-dark] .item.done input[type=checkbox]::after { border-color: #0b1320; }
+
+/* ============================================================================
+   设置 · 深浅主题切换（三段选择）
+   ----------------------------------------------------------------------------
+   与浮窗/主面板同一套玻璃语言：一条玻璃轨道，选中档是一块略实的玻璃。
+   值来自 hwTheme.setMode()，落在 localStorage，三份脚本共用同一套三态规则。
+   ========================================================================== */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r-ctl);
+  background: var(--track);
+  border: 1px solid var(--hairline);
+  flex-shrink: 0;
+}
+.seg button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--t-state) var(--ease-out),
+              color var(--t-state) var(--ease-out);
+}
+.seg button:hover { background: var(--surface-hi); color: var(--ink); }
+.seg button.on {
+  background: var(--surface-hi);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 var(--hairline-hi), 0 1px 2px rgba(16, 24, 40, 0.08);
+}
+.seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+html[data-lg-dark] .seg button.on {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg button { transition: none; }
+}
+
+/* ============================================================================
+   全软件统一字体（放在文件最后，确保层叠上生效）
+   ----------------------------------------------------------------------------
+   浏览器给 button / input / select / textarea 指定了 UA 字体（Windows 上是 Arial），
+   表单控件**不继承** body 的字体 —— 所以右上角四个功能按钮、标签、输入框
+   一直是 Arial，只有纯文本跟着走了楷体 + Times。
+   让它们继承即可；字体栈本身只在 fonts.css 的 --font-ui 里定义一处。
+   （checkbox / radio 不受影响：外观由 appearance 控制，字体不参与绘制。）
+   ========================================================================== */
+button, input, select, textarea, optgroup {
+  font-family: inherit;
+}

@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>任务清单</title>
+  <script src="theme-boot.js"></script>
+  <link rel="stylesheet" href="fonts.css">
+  <!-- 共享主题表：token 只在这一份里定义，三个页面共用。
+       必须放在页面自己的样式表**之前**，这样各页特有的值仍能覆盖它。 -->
+  <link rel="stylesheet" href="theme-shared.css">
 <link rel="stylesheet" href="main.css">
 </head>
 <body>
@@ -66,6 +71,19 @@
 <div class="modal-bg" id="settings-bg">
   <div class="modal" style="width: 660px;">
     <h2>设置</h2>
+
+    <div class="section">
+      <h3>外观</h3>
+      <div class="auto-row">
+        <div class="seg" id="theme-seg" role="group" aria-label="主题">
+          <button type="button" data-theme-mode="auto">跟随系统</button>
+          <button type="button" data-theme-mode="light">浅色</button>
+          <button type="button" data-theme-mode="dark">深色</button>
+        </div>
+        <div class="label">深浅主题</div>
+        <div class="status" id="theme-status">跟随系统</div>
+      </div>
+    </div>
 
     <div class="section">
       <h3>网站设置</h3>

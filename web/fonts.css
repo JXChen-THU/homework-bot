@@ -1,0 +1,78 @@
+/* ============================================================================
+   字体：中文楷体 + 拉丁 Times（随应用打包，离线可用，无网络请求）
+   ----------------------------------------------------------------------------
+   中文：楷体_GB2312（单字重 400，没有真正的粗体，所以样式里 font-weight 一律 400，
+         否则浏览器会合成伪粗体，字会糊）
+   拉丁：Times New Roman 四款（常规 / 粗 / 粗斜 / 斜）
+
+   一个字体栈搞定中英混排：浏览器逐字回退 ——
+     英文、数字、符号 → Times
+     汉字与中文标点 → 楷体
+   （实测 TIMES.TTF 的 cmap 共 1592 个码位：有数字和 ASCII 冒号，
+     但没有 — … “ ” ， ： （ ＋ 这些，它们会自然落到楷体。）
+
+   字体文件在 web/fonts/ 下。PyInstaller 已经收集整个 web/ 目录，
+   所以不需要改 HomeworkTasks.spec。
+   ========================================================================== */
+
+@font-face {
+  font-family: "HW-Kai";
+  src: url("fonts/楷体_GB2312.TTF") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HW-Times";
+  src: url("fonts/TIMES.TTF") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HW-Times";
+  src: url("fonts/TIMESBD.TTF") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HW-Times";
+  src: url("fonts/TIMESI.TTF") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "HW-Times";
+  src: url("fonts/TIMESBI.TTF") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* 中英混排只用一个栈：拉丁 Times 打头，汉字自然落到楷体 */
+  --font-ui: "HW-Times", "HW-Kai", "KaiTi_GB2312", "KaiTi", "楷体", "Times New Roman", "Microsoft YaHei", serif;
+}
+
+/* 全局生效：整个软件的字体都走这个栈。
+   用 html 选择器而不是 body —— 弹窗、浮窗、以及任何不在 body 直接继承链上的
+   元素（比如 ::before 生成的内容）都会拿到。
+   各页面样式里若又写了 font-family，会按层叠覆盖这里；三份样式文件里的
+   body 规则都已改成 var(--font-ui)，改字体只改上面那一行。 */
+html {
+  font-family: var(--font-ui, "Segoe UI", "Microsoft YaHei", sans-serif);
+}
+
+body {
+  font-family: var(--font-ui, "Segoe UI", "Microsoft YaHei", sans-serif);
+}
+
+/* ★ 表单控件不继承字体：浏览器默认给 button/input/select/textarea 指定了
+   UA 字体（Windows 上是 Arial），所以右上角那四个按钮、标签、输入框
+   一直没跟着走。这里让它们继承，字体才会真正"整个软件统一"。
+   （checkbox/radio 不受影响：外观由 appearance 控制，字体不参与绘制。） */
+button, input, select, textarea, optgroup {
+  font-family: inherit;
+}

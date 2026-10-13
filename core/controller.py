@@ -54,6 +54,7 @@ _main_window = None
 _alert_window = None
 _panel_window = None
 _screen_w = 1920
+_screen_h = 1080
 _items_cache = []
 _cache_lock = threading.Lock()
 
@@ -180,27 +181,45 @@ def _sync_main():
         pass
 
 
+def _main_geometry(W: int, H: int):
+    """主窗口的目标几何 (宽, 高, x, y)。
+
+    ★ 单一来源：建窗时的 x= / y= / width= / height= 与 show_main_window() 里的
+    resize/move 必须用**同一个算法**。否则建窗时放好了、之后又被挪到别处，
+    等于换了个位置再闪一次。
+    """
+    MW, MH = 1000, 720
+    if W < MW + 40:
+        MW = max(200, W - 40)
+    if H < MH + 80:
+        MH = max(200, H - 80)
+    return MW, MH, max(0, W - MW - 20), max(0, H - MH - 60)
+
+
 def show_main_window():
     global _main_visible, _main_positioned
     if not _main_window:
         return
     try:
-        try:
-            s = webview.screens[0]
-            W, H = s.width, s.height
-        except Exception:
-            W, H = 1920, 1080
+        # ★ 屏幕尺寸优先用启动时那次探测的结果（_primary_screen_size 在
+        #   webview.start() 之前就能拿到，且与 pywebview 的 Screen 同单位）。
+        #   拿不到才退回 webview.screens / 默认值。
+        W, H = _screen_w, _screen_h
+        if W <= 0 or H <= 0:
+            try:
+                first = next(iter(webview.screens))
+                W, H = int(first.width), int(first.height)
+            except Exception:
+                W, H = 1920, 1080
 
-        MW, MH = 1000, 720
-        if W < MW + 40:
-            MW = W - 40
-        if H < MH + 80:
-            MH = H - 80
+        MW, MH, MX, MY = _main_geometry(W, H)
 
-        # 先 restore 从任务栏拉出来，再 resize + move 到右下角，最后 show
+        # 先 restore 从任务栏拉出来，再 resize + move 到右下角，最后 show。
+        # （建窗时已经用同一套几何摆好过，所以这里的 resize/move 通常是空操作，
+        #   不会造成"先出现在别处再跳过来"。）
         _main_window.restore()
         _main_window.resize(MW, MH)
-        _main_window.move(W - MW - 20, H - MH - 60)
+        _main_window.move(MX, MY)
         _main_window.show()
         _main_positioned = True
     except Exception:
@@ -320,12 +339,10 @@ def layout_all():
 
         if not _alert_minimized:
             try:
+                # 先摆位再显示：顺序反了会先在系统默认位置闪一帧
+                place_float(_alert_window, w, h, W - ALERT_W - ALERT_MARGIN, y_default)
                 _alert_window.show()
-                _alert_window.resize(w, h)
-                if not _alert_shown:
-                    x = W - ALERT_W - ALERT_MARGIN
-                    _alert_window.move(x, y_default)
-                    _alert_shown = True
+                _alert_shown = True
             except Exception:
                 pass
 
@@ -349,13 +366,11 @@ def layout_all():
 
         if not _panel_minimized:
             try:
+                # 先摆位再显示（理由同红窗）
+                y = alert_bottom if (urgent and not _alert_dismissed) else y_default
+                place_float(_panel_window, w, h, W - ALERT_W - ALERT_MARGIN, y)
                 _panel_window.show()
-                _panel_window.resize(w, h)
-                if not _panel_shown:
-                    x = W - ALERT_W - ALERT_MARGIN
-                    y = alert_bottom if (urgent and not _alert_dismissed) else y_default
-                    _panel_window.move(x, y)
-                    _panel_shown = True
+                _panel_shown = True
             except Exception:
                 pass
     else:
@@ -366,6 +381,85 @@ def layout_all():
 
     # 同红窗：数据注入不随「最小化」一起跳过
     _inject_normal(normal)
+
+
+# ============================================================
+# 浮窗定位
+# ============================================================
+# ★ 为什么要有"先摆位再 show"这回事（修"开机时先闪一下左侧再跳到右下"）：
+#   浮窗用 hidden=True 创建，但 Windows 上 pywebview 的 hidden 是
+#   "Opacity=0 → Show() → Hide()"，也就是说窗口**真的被显示过一次**。
+#   如果此时还没 move()，它会先按系统默认位置画一帧。
+#
+# ★ 但只调顺序还不够！winforms 后端建窗时是这样定位置的：
+#       if window.initial_x is not None and window.initial_y is not None:
+#           StartPosition = Manual;  Location = (initial_x, initial_y)
+#       else:
+#           StartPosition = CenterScreen
+#   即"create_window 不传 x/y"的窗口，**第一次显示会被系统摆到屏幕中央**。
+#   无论 move() 排得多早，那一帧已经发生在建窗时了 —— 所以必须在建窗时
+#   就把坐标给进去（见 main() 里 create_window 的 x= / y=）。
+#
+# ★ 为什么不自己缓存位置（第一版就是这么写的，结果把「重置浮窗」弄坏了）：
+#   缓存里留的是"上次设的目标位置"，而用户可能**手动拖走**过窗口；再点「重置浮窗」
+#   时目标与缓存相同 → 判定为"没变" → 不 move，窗口就永远回不到右上角。
+#   现在改成读 Window.x / Window.y 拿**真实位置**再比较。这两个属性内部是
+#   gui.get_position()，后端已经做了 physical → logical 的换算（/scale），
+#   与 move() 期望的 logical 单位一致，可以直接比。
+#
+# 纯逻辑在 core/float_place.py 里，单独成模块是为了能被直接测试：
+#   node design-verify/liquid-glass/verify-float-place.js
+from core.float_place import place_float
+
+
+def _primary_screen_size(fallback_w: int = 1920, fallback_h: int = 1080):
+    """拿主显示器的**逻辑**尺寸 (宽, 高)（与 pywebview 的 Screen 同单位）。
+
+    必须在 webview.start() 之前也能用 —— 建窗时就要确定主窗口与浮窗的坐标。
+    webview.screens 是模块属性，内部 `if not guilib: guilib = initialize()`
+    已做防重入，且只 import 平台模块、不建窗口，所以提前调用是安全的。
+    """
+    try:
+        # 用 next(iter(...)) 而不是 [0]：create_window 的参数里也有个 screens，
+        # 显式取首个元素可以完全避开同名歧义。
+        first = next(iter(webview.screens))
+        w, h = int(first.width), int(first.height)
+        if w > 0 and h > 0:
+            return w, h
+    except Exception:
+        pass
+    # 兜底：直接问系统。
+    # ★ 顺序很关键：**必须先 SetProcessDPIAware()，再 GetSystemMetrics()**。
+    #   先读的话拿到的是被 DPI 缩放过的值（实测这台机器 2560 的屏读成 1707），
+    #   窗口会被摆错位置，反而制造出用户看到的那种"闪一下"。
+    #   SetProcessDPIAware 在 Win10+ 是幂等的，pywebview 自己也会调，不冲突。
+    try:
+        import ctypes
+        u = ctypes.windll.user32
+        w_phys = h_phys = 0
+        dpi = 96
+        try:
+            u.SetProcessDPIAware()
+            w_phys = int(u.GetSystemMetrics(0))       # 感知 DPI 后 = 物理像素
+            h_phys = int(u.GetSystemMetrics(1))
+            dpi = int(u.GetDpiForSystem())            # Win10 1607+
+        except Exception:
+            dpi = 96
+        if w_phys <= 0:
+            w_phys = int(u.GetSystemMetrics(0))
+            h_phys = int(u.GetSystemMetrics(1))
+        if w_phys > 0 and h_phys > 0:
+            # pywebview 的坐标是"逻辑像素"：物理尺寸 ÷ DPI 缩放 = 逻辑尺寸
+            sc = (dpi or 96) / 96.0
+            return max(1, int(round(w_phys / sc))), max(1, int(round(h_phys / sc)))
+    except Exception:
+        pass
+    return fallback_w, fallback_h
+
+
+def _primary_screen_w(fallback: int = 1920) -> int:
+    """只要宽度时的便捷包装。"""
+    return _primary_screen_size(fallback, 1080)[0]
 
 
 # ============================================================
@@ -914,7 +1008,7 @@ def _startup_show_fallback():
 # 主函数
 # ============================================================
 def main():
-    global _main_window, _alert_window, _panel_window, _screen_w, _startup_mode
+    global _main_window, _alert_window, _panel_window, _screen_w, _screen_h, _startup_mode
 
     # 1) 先解析数据目录。必须在任何 data/ 读写之前。
     ok, err = _setup_runtime_paths()
@@ -940,6 +1034,25 @@ def main():
     # 3) 建窗口与启动 GUI。目标机缺少 WebView2 Runtime 等情况下，
     #    异常会在 webview.start() 抛出——必须给出中文、可操作的提示，
     #    否则用户只看到"程序没反应"。
+    #
+    # ★ 建窗时就必须给出**每个**窗口的初始坐标（下面三个 create_window 的 x= / y=）：
+    #   winforms 后端的逻辑是
+    #       if window.initial_x is not None and window.initial_y is not None:
+    #           StartPosition = Manual;  Location = (initial_x, initial_y)
+    #       else:
+    #           StartPosition = CenterScreen          ← 不传 x/y 就是这个
+    #   也就是说"不给坐标"的窗口**第一次显示会被系统摆到屏幕中央**，
+    #   之后才被 move() 挪到右下 —— 用户在真机上看到的"先闪一下"就是这么来的。
+    #
+    #   ★ 主窗口同样中招，而且更明显：它是 hidden=False 创建的（非静默档），
+    #     所以**创建那一刻就显示在屏幕中央**了。show_main_window() 里的
+    #     restore→resize→move→show 全都在那之后 —— 顺序怎么调都没用，
+    #     那一帧已经发生了。只有建窗时给坐标才能消掉。
+    _screen_w, _screen_h = _primary_screen_size(_screen_w, _screen_h)
+    _float_x = max(0, _screen_w - ALERT_W - ALERT_MARGIN)
+    # 与 show_main_window() 共用同一套算法，避免"建窗放好了又被挪到别处"
+    _main_w, _main_h, _main_x, _main_y = _main_geometry(_screen_w, _screen_h)
+
     try:
         # 静默档必须用 hidden=True，不能用 minimized=True：
         # minimized 只是设 WindowState，pywebview 仍会 browser.Show()，
@@ -949,7 +1062,10 @@ def main():
         # evaluate_js 的 @_shown_call 门禁能通过，之后照常推数据。
         _main_window = webview.create_window(
             "任务清单", index_path, js_api=api,
-            width=1000, height=720,
+            width=_main_w, height=_main_h,
+            # ★ 主窗口也要给坐标：它在非静默档是 hidden=False，创建即显示，
+            #   不给坐标就会被 CenterScreen 摆在屏幕中央（就是那一闪的右侧位置）
+            x=_main_x, y=_main_y,
             hidden=(_startup_mode == "silent"),
         )
         _main_window.events.closing += _on_main_closing
@@ -961,12 +1077,18 @@ def main():
             frameless=True, on_top=True, hidden=True,
             width=ALERT_W, height=140,
             transparent=True,
+            # ★ 初始位置必须在建窗时给出，否则 WinForms 用 CenterScreen，
+            #   第一次显示会先出现在屏幕中央（见上面的长注释）
+            x=_float_x, y=ALERT_MARGIN,
         )
         _panel_window = webview.create_window(
             "提醒", panel_path, js_api=api,
             frameless=True, on_top=True, hidden=True,
             width=ALERT_W, height=200,
             transparent=True,
+            # 面板的 y 还要看红窗有没有显示，这里先按"只有面板"的那档给；
+            # 有数据后 _place_float 会再修正一次（那时窗口已经不在屏幕中央了）
+            x=_float_x, y=ALERT_MARGIN,
         )
 
         # 浮窗从任务栏恢复 → 清掉最小化标志并重排。
@@ -978,13 +1100,13 @@ def main():
         threading.Thread(target=_startup_show_fallback, daemon=True).start()
 
         def _after_start():
-            global _screen_w
+            global _screen_w, _screen_h
             try:
-                s = webview.screens[0]
-                W, H = s.width, s.height
+                first = next(iter(webview.screens))
+                W, H = int(first.width), int(first.height)
             except Exception:
                 W, H = 1920, 1080
-            _screen_w = W
+            _screen_w, _screen_h = W, H
             time.sleep(0.3)
             layout_all()
 

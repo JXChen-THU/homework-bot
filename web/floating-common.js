@@ -4,6 +4,51 @@ const isAlert = kind === 'alert';
 const api = () => window.pywebview.api;
 const listLimit = isAlert ? 8 : 12;
 
+/* ------------------------------------------------------------------ 主题兜底
+   主题解析的正主是 head 里的 theme-boot.js（首帧前就定下来，避免闪色）。
+   这里只做兜底：万一 theme-boot.js 没加载成功，浮窗也必须跟着系统亮暗走，
+   不能停在浅色。逻辑与 theme-boot.js 完全一致（同一套三态规则）。 */
+if (!window.hwTheme) {
+  (function () {
+    'use strict';
+    var KEY = 'hwThemeMode';
+    var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    function mode() {
+      try { var v = localStorage.getItem(KEY); return (v === 'light' || v === 'dark') ? v : 'auto'; }
+      catch (e) { return 'auto'; }
+    }
+    function resolved(m) {
+      if (m === 'light' || m === 'dark') return m;
+      return (mq && mq.matches) ? 'dark' : 'light';
+    }
+    function apply() {
+      var m = mode(), dark = resolved(m) === 'dark', root = document.documentElement;
+      if (dark) root.setAttribute('data-lg-dark', ''); else root.removeAttribute('data-lg-dark');
+      root.setAttribute('data-lg-mode', m);
+      return dark ? 'dark' : 'light';
+    }
+    if (mq) {
+      var onChange = function () { if (mode() === 'auto') apply(); };
+      if (mq.addEventListener) mq.addEventListener('change', onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    }
+    /* 主窗口在设置里改主题 → 本窗口立刻跟着变。
+       同源窗口共享 localStorage，改动会在其他窗口触发 storage 事件。 */
+    window.addEventListener('storage', function (e) {
+      if (e && e.key && e.key !== KEY) return;
+      apply();
+    });
+    window.hwTheme = {
+      apply: apply, mode: mode, resolved: function () { return resolved(mode()); },
+      setMode: function (m) {
+        try { if (m === 'light' || m === 'dark' || m === 'auto') localStorage.setItem(KEY, m); } catch (e) {}
+        return apply();
+      }
+    };
+    apply();
+  })();
+}
+
 function escapeHtml(value) {
   return (value || '').replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

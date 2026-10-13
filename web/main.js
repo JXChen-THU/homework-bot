@@ -461,6 +461,7 @@ async function openSettings() {
   await refreshSitesPanel();
   await refreshAutostart();
   await refreshStartupBehavior();
+  renderThemeMode();
 }
 
 async function refreshSitesPanel() {
@@ -779,7 +780,44 @@ autostartSwitch.addEventListener('click', async () => {
 });
 
 // ============================================================
-// 启动行为：「启动时静默」开关
+// 外观：「深浅主题」三段切换
+//
+// 三态规则与 theme-boot.js 完全一致（同一套解析，同一个 localStorage 键），
+// 所以这里改了之后，两个浮窗会在各自下一次读到时跟着变 —— 它们监听的是
+// 系统偏好，而"显式模式"这个键是三份脚本共用的。
+//
+// 选 auto = 跟随系统（Windows 设置里的"应用模式"）。
+// ============================================================
+const themeSeg = document.getElementById('theme-seg');
+const themeStatus = document.getElementById('theme-status');
+const THEME_LABEL = { auto: '跟随系统', light: '浅色', dark: '深色' };
+
+function renderThemeMode() {
+  if (!themeSeg) return;
+  const mode = (window.hwTheme && window.hwTheme.mode) ? window.hwTheme.mode() : 'auto';
+  themeSeg.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('on', b.dataset.themeMode === mode);
+  });
+  if (themeStatus) themeStatus.textContent = THEME_LABEL[mode] || '跟随系统';
+}
+
+if (themeSeg) {
+  themeSeg.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const next = btn.dataset.themeMode;
+    // theme-boot.js 一定会加载（head 里同步执行），但万一被拦掉也不该静默失效
+    if (window.hwTheme && window.hwTheme.setMode) window.hwTheme.setMode(next);
+    else {
+      try { localStorage.setItem('hwThemeMode', next); } catch (_) {}
+      const dark = next === 'dark' || (next === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.toggleAttribute('data-lg-dark', dark);
+    }
+    renderThemeMode();
+  });
+}
+
+// ============================================================// 启动行为：「启动时静默」开关
 //
 // 开关样式和「开机自启动」共用 .switch。
 // 开 = silent（每次启动都不出现窗口），关 = visible（启动即显示界面）。
