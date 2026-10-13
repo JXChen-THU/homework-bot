@@ -10,9 +10,13 @@
 #
 # 【启动行为】startup_mode 控制每次启动时的窗口行为，也可以在
 # 程序「设置 → 启动行为」里切换（推荐，改这里需要重启才生效）：
-#   silent  = 静默抓取：每次启动都不出现窗口（默认）
-#   visible = 直接显示界面：启动就出现窗口，能看到进度文字区滚动
-startup_mode: silent
+#   visible = 直接显示界面：启动就出现窗口，能看到进度文字区滚动（首次运行默认）
+#   silent  = 静默抓取：每次启动都不出现窗口
+#
+# 首次运行默认 visible：这时一个会话文件都还没有，程序不会去抓作业，
+# 而是直接显示界面让你先填账号密码。等你填好、并在设置里自己选过
+# 「启动时静默」之后，就按你的选择来（不会替你默认静默）。
+startup_mode: visible
 
 sites:
   - id: thuoj
@@ -60,8 +64,9 @@ sites:
     name: 数你最灵
     type: smartestu
     base_url: https://smartestu.cn/
-    # 数你最灵登录前必须先选学校，这里填你所在的学校全名
-    school: XX大学
+    # 数你最灵登录前必须先选学校，这里填你所在的学校全名（例如：XX大学）
+    # 留空也能启动，程序会在「设置 → 填账号密码」里要求你补上
+    school: ""
     username: ""
     password: ""
     session: smartestu_session.json
