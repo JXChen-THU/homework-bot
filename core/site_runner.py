@@ -910,6 +910,16 @@ def _should_clear_session_before_relogin(site, exc):
 # 没有上限就会变成"报错 → 重登 → 再报错"的无限循环，把一次刷新卡死。
 RELOGIN_MAX_CONSECUTIVE = 3
 
+# 这些重登失败原因是"用户自己能修"的：收到就直接给对应话术，不要让原始抓取错误
+# （超时 / 500 / 页面改版）盖在前面。用户要求："我专门改错密码，你要在收到密码错误的
+# 时候就直接提示出来，不要重复登录。"
+_CREDENTIAL_FAILURE_REASONS = {
+    "bad_credentials",         # 密码错（平台明确回"用户名或密码不正确"）
+    "school_select_failed",    # 选校没成功：服务端回的是凭据错误，要修的是选校
+    "no_credentials",          # 账号密码是空的
+    "session_save_unusable",   # 登录成功但会话存不下来
+}
+
 
 def _fetch_one_site_locked(site):
     """抓一个站点。
@@ -934,6 +944,7 @@ def _fetch_one_site_locked(site):
         return homeworks, errors, need_login
 
     relogins = 0            # 本轮已经连续重登的次数
+    failed_reason = ""      # 最后一次重登失败的 reason（密码错这类"用户能修"的直接提示）
     last_error = None       # 最后一次"抓取本身失败"的原因；None 表示该提示"需要登录"
     while True:
         try:
@@ -967,16 +978,21 @@ def _fetch_one_site_locked(site):
             print(f"[fetch] {_site_label(site)}: 已连续重登 {relogins} 次仍失败，不再重试")
             break
         if not auto_relogin_site(site):
+            # 记下这次重登为什么失败：密码错这类"用户能修"的问题必须**直接**说出来，
+            # 不能被原始的抓取错误（超时 / 500）盖在前面。
+            failed_reason = _last_failure_reason(site.get("id")) or ""
             break
         relogins += 1
 
-    if last_error is not None:
+    if last_error is not None and failed_reason not in _CREDENTIAL_FAILURE_REASONS:
         errors.append({
             "site_name": site.get("name", site.get("id")),
             "message": f"{type(last_error).__name__}: {last_error}",
         })
     else:
-        # 静默登录不可用 / 失败 → 交给前端提示（reason 让前端能给出更准确的话术）
+        # 两种情况都交给前端提示（reason 让它给出更准确的话术）：
+        #   1) last_error 为空 —— 本来就是"需要登录"；
+        #   2) 重登失败在"用户能修"的原因上（密码错 / 选校失败 / 没账密 / 会话存不下来）。
         need_login.append(_need_login_entry(site))
     _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
     return homeworks, errors, need_login
@@ -1156,6 +1172,14 @@ def _auto_relogin_locked(site):
             _relogin_clear(sid)
             print(f"[relogin] {name}: 成功（无头）")
             return True
+
+        # 密码明确是错的：屏幕外窗口不可能把它变对，只会再花 10~60 秒、还可能闪一下窗口。
+        # 用户要求："我专门改错密码，你要在收到密码错误的时候就直接提示出来，不要重复登录。"
+        if reason == "bad_credentials":
+            _relogin_mark_failed(sid, reason)
+            _remember_failure(sid, reason)
+            print(f"[relogin] {name}: 无头层已明确是密码错误，不再用屏幕外窗口重试（直接提示用户）")
+            return False
 
     # ---- 第 2 层：屏幕外真实窗口 ----
     print(f"[relogin] {name}: 改用屏幕外窗口重试…")
