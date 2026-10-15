@@ -1366,6 +1366,15 @@ def main():
         # 主窗口关闭后走到这里：把工作线程拉起的浏览器进程一起带走，
         # 否则任务管理器里会留下 node.exe / msedge.exe（见 _shutdown_cleanup）。
         _shutdown_cleanup()
+
+        # ★ 立刻结束进程，不走正常的解释器退出流程。
+        #   为什么必须这样：`concurrent.futures` 注册了 atexit，解释器退出时会 **join
+        #   所有工作线程**；只要还有一个线程卡在 Playwright / 网络请求上，进程就会一直
+        #   活着 —— 表现就是「窗口已经关了，任务管理器里还有这个 exe」，
+        #   而且**删不掉它**（Windows 允许改名运行中的 exe，但不允许删除），
+        #   用户想换新版时会一直撞到「文件正在使用中」。
+        #   收尾已经把浏览器子进程带走了、数据库写也是即时的，这里直接退最干净。
+        os._exit(0)
     except Exception as e:
         print(f"[gui] 界面启动失败：{type(e).__name__}: {e}")
         _fatal_dialog(
