@@ -890,6 +890,26 @@ def _relogin_ready(site):
         return False
 
 
+def _verdict_reporter(site):
+    """把登录判定结果立刻播报到界面的进度区（关浏览器之前）。
+
+    实测：判定出"密码错"只用 2.1 秒，而整段要 8.6 秒 —— 多出来的 6.5 秒是
+    Playwright 退出浏览器的固定开销。用户不该为了等这个收尾才看到答案。
+    """
+    label = _site_label(site)
+    texts = {
+        "bad_credentials": "账号或密码可能不对，请重新填写（正在收尾）",
+        "school_select_failed": "选校没成功，请重新选择学校（正在收尾）",
+        "no_credentials": "还没有填账号密码",
+        "mfa": "需要一次验证码，请点「登录」处理（正在收尾）",
+        "no_adapter_support": "该平台不支持账密自动登录",
+        "session_save_unusable": "登录成功但会话存不下来（正在收尾）",
+    }
+    def cb(reason):
+        _emit_progress(f"[{label}] {texts.get(reason, '登录没有成功（正在收尾）')}")
+    return cb
+
+
 def _discard_reason(exc):
     """丢弃旧会话时写进日志的原因（超时 / 需要登录 / 其它失败措辞不同）。"""
     if exc is None:
@@ -899,11 +919,11 @@ def _discard_reason(exc):
     return f"抓取失败（{type(exc).__name__}），先丢弃旧会话以便真正重登"
 
 
-# 一次抓取里最多连续重登几次。
-# 用户要求："只要报错什么就尝试重登，最多连续重登三次"。
-# 上限是必需的：每次重登都是真实登录（10~60 秒，清华 SSO 还可能弹窗），
-# 没有上限就会变成"报错 → 重登 → 再报错"的无限循环，把一次刷新卡死。
-RELOGIN_MAX_CONSECUTIVE = 3
+# 一次抓取里最多重登几次。
+# 用户要求（最新）："系统报错的时候尝试重新登录一遍" —— **只试一遍**，
+# 不再连续重试三次；同时"把之前的转三遍取消"。道理是：重登是真实登录
+# （每遍 10~60 秒，清华 SSO 还可能弹窗），有答案就该立刻给用户，不要让他干等。
+RELOGIN_MAX_CONSECUTIVE = 1
 
 # 这些重登失败原因是"用户自己能修"的：收到就直接给对应话术，不要让原始抓取错误
 # （超时 / 500 / 页面改版）盖在前面。用户要求："我专门改错密码，你要在收到密码错误的
@@ -939,7 +959,15 @@ def _fetch_one_site_locked(site):
         _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
         return homeworks, errors, need_login
 
-    relogins = 0            # 本轮已经连续重登的次数
+    # ★ 既没有登录状态、又没有可用账密 → 这一轮抓取注定只会得到"需要登录"，
+    #   那就别起浏览器、别发请求，直接把话说出来。用户要求：没填账号密码要和
+    #   填错一样立即爆出（配合启动闸门，首次运行也不会空转）。
+    if not _site_has_usable_session(site) and not _relogin_ready(site):
+        need_login.append(_need_login_entry(site))
+        _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
+        return homeworks, errors, need_login
+
+    relogins = 0            # 本轮已经重登的次数
     failed_reason = ""      # 最后一次重登失败的 reason（密码错这类"用户能修"的直接提示）
     last_error = None       # 最后一次"抓取本身失败"的原因；None 表示该提示"需要登录"
     while True:
@@ -967,7 +995,7 @@ def _fetch_one_site_locked(site):
 
         # ---------- 报错了：尝试重登，最多连续 RELOGIN_MAX_CONSECUTIVE 次 ----------
         if relogins >= RELOGIN_MAX_CONSECUTIVE:
-            print(f"[fetch] {_site_label(site)}: 已连续重登 {relogins} 次仍失败，不再重试")
+            print(f"[fetch] {_site_label(site)}: 已重登 {relogins} 次仍失败，不再重试")
             break
         if _relogin_blocked(site.get("id")):
             print(f"[fetch] {_site_label(site)}: 上次登录失败还在冷却，跳过自动重登")
@@ -1170,7 +1198,8 @@ def _auto_relogin_locked(site):
         headless_tried = True
         print(f"[relogin] {name}: 会话失效，尝试后台静默重登…")
         try:
-            ok, reason = silent_login(site, DATA_DIR, log=_diag)
+            ok, reason = silent_login(site, DATA_DIR, log=_diag,
+                                      on_verdict=_verdict_reporter(site))
         except Exception as e:
             print(f"[relogin] {name}: 无头登录异常 {type(e).__name__}: {e}")
             ok, reason = False, "exception"
@@ -1191,7 +1220,8 @@ def _auto_relogin_locked(site):
     # ---- 第 2 层：屏幕外真实窗口 ----
     print(f"[relogin] {name}: 改用屏幕外窗口重试…")
     try:
-        ok2, reason2 = silent_login(site, DATA_DIR, offscreen=True, log=_diag)
+        ok2, reason2 = silent_login(site, DATA_DIR, offscreen=True, log=_diag,
+                                    on_verdict=_verdict_reporter(site))
     except Exception as e:
         print(f"[relogin] {name}: 屏幕外登录异常 {type(e).__name__}: {e}")
         ok2, reason2 = False, "exception"

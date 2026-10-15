@@ -429,13 +429,17 @@ def _context_args(site, storage_state=None):
 # ============================================================
 # 静默登录
 # ============================================================
-def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False):
+def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False,
+                 on_verdict=None):
     """静默登录。
 
     offscreen=False（默认）：无头浏览器。
     offscreen=True：真实窗口（headless=False），但把窗口移到屏幕外。
         实测清华 SSO 会挑战无头浏览器、却放行真实窗口；窗口放在屏幕外
         用户看不见，效果等同于「后台静默」，只是多了一个不可见的窗口。
+
+    `on_verdict(reason)`：判定出失败原因的**那一刻**回调（在关闭浏览器之前），
+        用来把答案先播报给用户 —— 浏览器退出还要几秒，没必要让他干等。
 
     返回 (ok, reason)：
         ok=True            登录成功，会话已保存
@@ -659,6 +663,12 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
                 browser.close()
                 return False, "session_save_unusable"
 
+            # 先把答案播报出去，再去关浏览器（关闭本身要几秒，不该让用户等它）
+            if on_verdict:
+                try:
+                    on_verdict(reason)
+                except Exception:
+                    pass
             _log(f"静默登录失败：{reason}")
             browser.close()
             return False, reason
