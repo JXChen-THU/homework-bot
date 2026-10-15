@@ -775,6 +775,19 @@ def fetch_all():
             need_login.extend(nl)
         return homeworks, errors, need_login
 
+    done_ids = set()
+
+    def _announce_pending():
+        """还有站点没抓完时播报一句。
+
+        为什么需要：进度区只保留最后 3 行，慢站点那一行会被后来完成的站点顶掉，
+        界面上就变成"几条都显示已获取，却一直不动"，看着像卡死。
+        """
+        left = [s for s in sites if s.get("id") not in done_ids]
+        if left:
+            _emit_progress("仍在抓取 %d 个站点：%s" % (
+                len(left), "、".join(_site_label(s) for s in left)))
+
     with ThreadPoolExecutor(max_workers=workers,
                             thread_name_prefix="fetch") as pool:
         futures = {pool.submit(_fetch_one_site, s): s for s in sites}
@@ -798,6 +811,8 @@ def fetch_all():
             homeworks.extend(hw)
             errors.extend(er)
             need_login.extend(nl)
+            done_ids.add(site.get("id"))
+            _announce_pending()
 
     return homeworks, errors, need_login
 
@@ -1018,6 +1033,15 @@ def _fetch_one_site_locked(site):
                 # 记录原因：重登最终失败时，用户看到的应该是"抓取失败"的真相，
                 # 而不是被笼统地告知"需要登录"。
                 last_error = e
+                if getattr(e, "credentials", False):
+                    # 凭据本身就被服务器拒了（例如 Tyche 的 Basic Auth 回 401）：
+                    # 重登不可能把它变对，只会白跑一轮。当场按"账号密码可能不对"上报，
+                    # 同时进冷却，免得每次刷新都去撞一次。
+                    failed_reason = "bad_credentials"
+                    _remember_failure(site.get("id"), failed_reason)
+                    _relogin_mark_failed(site.get("id"), failed_reason)
+                    print(f"[fetch] {_site_label(site)}: 凭据未通过校验，跳过自动重登并直接提示用户")
+                    break
 
         # ---------- 报错了：尝试重登，最多连续 RELOGIN_MAX_CONSECUTIVE 次 ----------
         if relogins >= RELOGIN_MAX_CONSECUTIVE:
@@ -1247,6 +1271,17 @@ def _auto_relogin_locked(site):
             _relogin_mark_failed(sid, reason)
             _remember_failure(sid, reason)
             print(f"[relogin] {name}: 无头层已明确是密码错误，不再用屏幕外窗口重试（直接提示用户）")
+            return False
+
+        # 无头层"等到超时也没判出结果"时，屏幕外窗口不是解药：屏幕外那一层的用途是
+        # 绕过"反无头"（表现是验证码/二次验证页，reason=mfa/no_login_form），
+        # 而不是"慢"。以前这里会再花等额预算重试一遍，于是 Tyche 这类站点
+        # 一次刷新要干等两轮（每轮预算当时是 60 秒，现在是 5 秒）。
+        # 现在只等一轮，用户最多等一轮预算。
+        if reason == "timeout":
+            _relogin_mark_failed(sid, reason)
+            _remember_failure(sid, reason)
+            print(f"[relogin] {name}: 无头层等到超时仍未判出结果，不再改用屏幕外窗口重试")
             return False
 
     # ---- 第 2 层：屏幕外真实窗口 ----

@@ -95,12 +95,13 @@ def fetch_homeworks(site, base_dir):
 
     from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
                        page_on_login_page, site_urls_of,
-                       SESSION_PROBE_MS, DATA_READY_MS)
+                       SESSION_PROBE_MS, DATA_READY_MS, guard_in_page_fetch)
 
     with browser_session() as browser:
         ctx = browser.new_context(storage_state=session)
         try:
             page = ctx.new_page()
+            guard_in_page_fetch(page)   # 页面内 fetch 超时保护，见 auth.guard_in_page_fetch
             page.goto(site["base_url"], wait_until="domcontentloaded")
 
             def _ok(pg):

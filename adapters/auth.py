@@ -8,7 +8,7 @@
     可选的 helper  例如 _get_courses(page)
 
 本模块据此提供：
-    silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
+    silent_login(site, base_dir, *, timeout_ms=5000, log=None, offscreen=False)
         无头（或屏幕外真实窗口）静默登录；返回 `(ok, reason)`，不抛异常。
         reason 取值：
           ok / session_valid / session_save_unusable / no_credentials / no_adapter_support /
@@ -25,6 +25,49 @@ import time
 from contextlib import contextmanager
 
 from playwright.sync_api import sync_playwright
+
+
+# 页面内 fetch 的超时（毫秒）。8 秒对「接口只是慢」足够宽容，对「卡死」则能及时收场。
+IN_PAGE_FETCH_MS = 8000
+
+# 用 add_init_script 注入：它会在**每次导航之后**都执行，所以页面跳转也不会丢。
+_FETCH_GUARD_JS = """
+(() => {
+  try {
+    if (window.__hbFetchGuarded) return;
+    window.__hbFetchGuarded = true;
+    const orig = window.fetch ? window.fetch.bind(window) : null;
+    if (!orig || typeof AbortController === 'undefined') return;
+    window.fetch = (input, init) => {
+      init = init || {};
+      if (!init.signal) {
+        const ctl = new AbortController();
+        init.signal = ctl.signal;
+        setTimeout(() => { try { ctl.abort(); } catch (e) {} }, __HB_FETCH_MS__);
+      }
+      return orig(input, init);
+    };
+  } catch (e) { /* 注入失败不能影响抓取 */ }
+})();
+"""
+
+
+def guard_in_page_fetch(page, timeout_ms=IN_PAGE_FETCH_MS):
+    """给页面里的 `window.fetch` 套一个超时（创建页面后立刻调用）。
+
+    ★ 为什么非做不可：Playwright 的 `page.evaluate` **不套用 default timeout**。
+      页面内的 fetch 一旦挂住（服务器接了连接却一直不回），evaluate 就永不返回，
+      整个抓取线程卡死 —— 界面上表现为「别的站点都显示获取完成，这个站点一直卡着」，
+      而且刷新按钮也点不动（那一轮还占着抓取锁）。
+      用 AbortController 在页面内侧兜住，挂住的请求会变成一次可上报的失败。
+    返回 True/False：注入失败不影响主流程，只是没有这层保护。
+    """
+    try:
+        page.add_init_script(
+            script=_FETCH_GUARD_JS.replace("__HB_FETCH_MS__", str(int(timeout_ms))))
+        return True
+    except Exception:
+        return False
 
 
 # ============================================================
@@ -428,7 +471,7 @@ def _context_args(site, storage_state=None):
 # ============================================================
 # 静默登录
 # ============================================================
-def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False,
+def silent_login(site, base_dir, *, timeout_ms=5000, log=None, offscreen=False,
                  on_verdict=None):
     """静默登录。
 
@@ -436,6 +479,10 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False,
     offscreen=True：真实窗口（headless=False），但把窗口移到屏幕外。
         实测清华 SSO 会挑战无头浏览器、却放行真实窗口；窗口放在屏幕外
         用户看不见，效果等同于「后台静默」，只是多了一个不可见的窗口。
+
+    `timeout_ms`：**提交之后**的判定预算（不含启动浏览器、打开登录页、填表的时间）。
+        实测正常站点 0.1~2 秒就能判出结果，所以默认只有 5 秒：宁可早点告诉用户
+        "登录超时，请重试"，也不要让他盯着一个不确定的等待。
 
     `on_verdict(reason)`：判定出失败原因的**那一刻**回调（在关闭浏览器之前），
         用来把答案先播报给用户 —— 浏览器退出还要几秒，没必要让他干等。
@@ -498,6 +545,7 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False,
 
         page = ctx.new_page()
         page.set_default_timeout(20000)
+        guard_in_page_fetch(page)
 
         # 登录表单的选择器：下面所有"等页面就绪"都以"表单出现"为准，
         # 不再睡固定秒数（见 _wait_for_any）。
@@ -619,8 +667,18 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False,
                     pass
 
             # 8) 等待登录结果 —— 判定窗口从这一刻开始算（见上面的 deadline 说明）
+            #    同时记下"提交时刻"和"提交时的 URL"：下面用它判断
+            #    "提交完一直停在同一个登录表单上"＝这次输入被拒。
             deadline = time.time() + timeout_ms / 1000.0
-            ok, reason = _wait_for_login(page, validate, site, deadline, cfg)
+            submitted_at = time.time()
+            try:
+                url_at_submit = page.url.split("#")[0]
+            except Exception:
+                url_at_submit = ""
+            ok, reason = _wait_for_login(page, validate, site, deadline, cfg,
+                                     submitted_at=submitted_at,
+                                     form_sels=[s for s in (user_sel, pass_sel) if s],
+                                     url_at_submit=url_at_submit)
             if not ok and reason == "bad_credentials" and school_failed:
                 # 选校没成功却被服务端回了凭据错误：真正坏掉的是选校。
                 # 降级 reason 可以同时避免 1800 秒冷却和"去改密码"的错误引导。
@@ -810,6 +868,7 @@ def _verify_saved_session(browser, site, sess_path, validate, cfg, ctx_args, log
     try:
         page = ctx.new_page()
         page.set_default_timeout(20000)
+        guard_in_page_fetch(page)
         page.goto(target, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(3000)
         if validate(page, site):
@@ -827,7 +886,14 @@ def _verify_saved_session(browser, site, sess_path, validate, cfg, ctx_args, log
             pass
 
 
-def _wait_for_login(page, validate, site, deadline, cfg):
+# 提交后多久还停在登录表单上就认定"输入被拒"。取 3 秒：必须早于 timeout_ms 的
+# 5 秒预算，否则这条判据永远轮不到；而登录成功必然离开这个表单（要么 validate 通过，
+# 要么 URL 变了），所以 3 秒足够安全。
+STUCK_FORM_MS = 3000
+
+
+def _wait_for_login(page, validate, site, deadline, cfg, *, submitted_at=None,
+                    form_sels=None, url_at_submit=None):
     """轮询判断是否登录成功；同时识别「账号密码错误」和「必须人工介入」两类情况。
 
     注意：不能拿页面正文去匹配「验证码」这种泛化关键词——
@@ -904,6 +970,28 @@ def _wait_for_login(page, validate, site, deadline, cfg):
         if body and any(m in body for m in body_markers):
             return False, "bad_credentials"
 
+        # 4) 「提交完一直停在同一个登录表单上」→ 这次输入被拒。
+        #    有些站点（Tyche 就是）的报错文字不在任何已知标记里，旧逻辑会一路轮询到
+        #    预算上限（原来是 60 秒，两层就是两分钟），用户干等到最后只看到"登录超时"。
+        #    这里给一个更早、也更有普适性的判据：提交满 STUCK_FORM_MS 之后，
+        #    URL 还是提交时那个、表单输入框还在、也没有二次验证界面 ⇒ 账号或密码不对。
+        #    （登录成功必然离开这个表单：要么被 _safe_validate 判成功，要么已经跳转。）
+        if (submitted_at and form_sels and url_at_submit is not None
+                and (time.time() - submitted_at) * 1000 >= STUCK_FORM_MS):
+            same_url = True
+            try:
+                same_url = page.url.split("#")[0] == url_at_submit
+            except Exception:
+                pass
+            if same_url:
+                try:
+                    still = any(page.locator(s).first.count()
+                                and page.locator(s).first.is_visible() for s in form_sels)
+                except Exception:
+                    still = False
+                if still:
+                    return False, "bad_credentials"
+
         try:
             page.wait_for_timeout(1200)
         except Exception:
@@ -949,7 +1037,9 @@ def interactive_login(site, base_dir, *, timeout_s=600, keep_alive=False, prefil
         ctx = browser.new_context(**_context_args(site))
         page = ctx.new_page()
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            # 这是**可见**窗口（用户在看），不是静默等待；但 60 秒也太久。
+            # 失败会被下面的 except 兜住：窗口照样留给用户手动输地址。
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
         except Exception as e:
             # 打不开也把窗口留给用户：至少能看到浏览器、手动输地址
             print(f"[login] 打开登录页失败（可手动输地址）：{type(e).__name__}: {str(e)[:120]}")

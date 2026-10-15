@@ -86,7 +86,7 @@ def fetch_homeworks(site, base_dir):
 
     from .auth import (browser_session, wait_for_ready, login_url, timeout_detail,
                        page_on_login_page, site_urls_of,
-                       SESSION_PROBE_MS, DATA_READY_MS)
+                       SESSION_PROBE_MS, DATA_READY_MS, guard_in_page_fetch)
 
     with browser_session() as browser:
         # 关键：http_credentials 自动填 Basic Auth 弹窗。
@@ -100,7 +100,37 @@ def fetch_homeworks(site, base_dir):
         ctx = browser.new_context(**ctx_args)
         try:
             page = ctx.new_page()
-            page.goto(site["base_url"], wait_until="domcontentloaded")
+            guard_in_page_fetch(page)   # 页面内 fetch 超时保护，见 auth.guard_in_page_fetch
+            # 显式超时：以前用 Playwright 默认值，服务器不回就静静卡 30 秒。
+            resp = None
+            try:
+                resp = page.goto(site["base_url"], wait_until="domcontentloaded", timeout=20000)
+                # ★ 主文档回 401 ＝ Basic Auth 没过（Tyche 整个站点都在 Basic Auth 后面）。
+                #   凭据「填错」时页面正文其实能"打开"（就是 401 的 HTML），于是旧逻辑会
+                #   白等 SESSION_PROBE_MS + DATA_READY_MS 共 6 秒，然后接口再回 401 被当成
+                #   "需要登录"，白跑一次注定失败的重登，最后给出误导性提示。
+                if resp is not None and resp.status == 401:
+                    raise FetchFailedError(
+                        site["id"], site["name"],
+                        "Tyche 的 Basic Auth 账号密码未通过服务器校验"
+                        "（请在「设置 → 填账号密码」里检查「Basic Auth」两项）",
+                        credentials=True)
+            except FetchFailedError:
+                raise
+            except Exception as e:
+                text = str(e)
+                if "ERR_INVALID_AUTH_CREDENTIALS" in text or "401" in text:
+                    # 站点在 Basic Auth 后面：凭据不对/没填时服务器直接回 401，
+                    # 浏览器连登录页都打不开。这必须说成人话，
+                    # 而不是把原始 Playwright 报错甩给用户；也无需重登。
+                    raise FetchFailedError(
+                        site["id"], site["name"],
+                        "Tyche 的 Basic Auth 账号密码未通过服务器校验"
+                        "（请在「设置 → 填账号密码」里检查「Basic Auth」两项）",
+                        credentials=True) from e
+                raise FetchFailedError(
+                    site["id"], site["name"],
+                    f"打开 Tyche 首页失败：{text[:160]}", timeout=True) from e
 
             # 轮询 ShowGroup 接口：一旦能拿到数据就立刻继续，
             # 比等 networkidle 快，也顺便完成了登录判定。
@@ -115,6 +145,12 @@ def fetch_homeworks(site, base_dir):
                 timeout_ms=SESSION_PROBE_MS, what="Tyche 作业接口（会话预检）",
                 login_urls=logins, site_urls=site_urls_of(site))
             if not got:
+                # 先直接读一次接口：401/403 是硬信号，没必要再等满 5 秒数据窗口。
+                # （会话失效时这一下能省掉约 5 秒，用户更早看到"需要登录"。）
+                peek = _fetch_group(page, site["gid"])
+                if isinstance(peek, dict) and peek.get("status") == "http_error" \
+                        and peek.get("code") in (401, 403):
+                    raise LoginRequiredError(site["id"], site["name"])
                 # 预检没成功、也没被跳到登录页 → 可能只是接口慢，再给一次数据
                 # 时限。无论走哪条，下面的正式取值与状态码分流都不变。
                 got = wait_for_ready(

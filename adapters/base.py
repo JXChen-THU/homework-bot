@@ -39,13 +39,20 @@ class FetchFailedError(Exception):
     所以 `site_runner` 会在重登前先清掉该站点的登录记录。
 
     注意 `timeout` 只管"要不要清登录记录"：**任何**抓取失败都会触发一次静默重登
-    （最多连续 3 次，见 `site_runner.RELOGIN_MAX_CONSECUTIVE`）。
+    （只重登一遍，见 `site_runner.RELOGIN_MAX_CONSECUTIVE`）。
+
+    `credentials=True` 是更强的一种：**凭据本身就没通过**（例如 Tyche 的 Basic Auth
+    被服务器回了 401）。这种失败重登一百次也没用，所以 `site_runner` 会跳过重登、
+    当场按"账号或密码不对"提示用户。
     """
-    def __init__(self, site_id, site_name, detail="", timeout=False):
+    def __init__(self, site_id, site_name, detail="", timeout=False, credentials=False):
         self.site_id = site_id
         self.site_name = site_name
         self.detail = detail
         self.timeout = timeout
+        # ★ 必须真的挂到实例上：site_runner 用 getattr(e, "credentials", False) 判断
+        #   "这轮不用重登"。只改签名不赋值的话，标记永远是 False，补丁形同不存在。
+        self.credentials = credentials
         super().__init__(f"{site_name} 抓取失败" + (f"：{detail}" if detail else ""))
 
 

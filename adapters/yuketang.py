@@ -120,7 +120,7 @@ def fetch_homeworks(site, base_dir):
 
     雨课堂要微信扫码，没有会话时直接报需要登录，不浪费一次浏览器启动。
     """
-    from .auth import browser_session, wait_for_ready
+    from .auth import browser_session, wait_for_ready, guard_in_page_fetch
 
     session = session_path(base_dir, site)
     if not os.path.exists(session):
@@ -133,6 +133,7 @@ def fetch_homeworks(site, base_dir):
         ctx = browser.new_context(storage_state=session)
         try:
             page = ctx.new_page()
+            guard_in_page_fetch(page)   # 页面内 fetch 超时保护，见 auth.guard_in_page_fetch
             try:
                 page.goto(site["base_url"], wait_until="domcontentloaded", timeout=45000)
             except Exception as e:
