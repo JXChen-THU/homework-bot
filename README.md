@@ -194,6 +194,26 @@ PyInstaller，在项目目录运行这条等价命令：
 结果位于 `dist/HomeworkTasks/`。它只收集 `web/`、`sites.yaml.template` 与 playwright 运行时
 （界面用**系统字体**，所以没有字体相关的 `--add-data`）。
 
+发布前再做一次清理（文件夹约省 5 MB，zip 约省 1.3 MB；这些文件运行时用不到，
+已用"真启动一次 Edge 并操作页面"验证过）：
+
+```powershell
+$d = "dist\HomeworkTasks\_internal"
+Get-ChildItem $d -Recurse -File | Where-Object { $_.Name -like "*.d.ts" -or $_.Extension -eq ".map" } | Remove-Item -Force
+Remove-Item "$d\playwright\driver\package\lib\vite" -Recurse -Force   # 测试报告 / 追踪查看器 / 录制器界面
+Remove-Item "$d\playwright\async_api" -Recurse -Force                 # 本项目只用同步 API
+```
+
+### 包为什么这么大（约 129 MB / zip 约 51 MB）
+
+- `_internal\playwright\driver\node.exe` 一个就 **89 MB**：这是驱动浏览器做自动登录的 Node 运行时，
+  不是浏览器本身。浏览器用的是**系统已安装的 Edge**（`channel="msedge"`），所以没有把 Chromium
+  打进包 —— 否则还要再加一百多 MB。
+- 其余是 Python 运行时与依赖：`python312.dll` 6.6 MB、`libcrypto/libssl` 5.8 MB、
+  `pythonnet`（pywebview 用）3.2 MB、`sqlite3.dll` 1.5 MB 等。
+- 如果更在意**下载体积**，可以改用 7z / `.tar.xz`（LZMA）打包：同样内容约 **36 MB**（实测），
+  代价是接收方需要 7-Zip，或使用 Windows 11 自带的解压支持。
+
 ⚠️ 发布前请确认分享包里没有你自己的 `sites.yaml` 或 `data/` —— **运行过一次产物里的 exe 后，
 它会在产物目录里就地生成这两项，压缩分享前要先删掉。**
 

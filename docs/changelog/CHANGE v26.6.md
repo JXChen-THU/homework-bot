@@ -476,6 +476,44 @@ v26.5给红窗加过一个下限 `URGENT_PAST_GRACE_HOURS = 72`（过期超过 3
 （此前已有的防呆：账密弹窗空值校验、配置读不出时拒绝写入、界面绝不把"抓取失败"说成
 "全部完成"、未收录 reason 通用兜底、数据目录不可写时回退并提示。）
 
+### 15. 包体说明与发布前清理（同学问"zip 为什么五十多 M"）
+
+结论：**大头是 Playwright 的 Node 运行时，不是浏览器。**
+
+| 组成 | 体积 |
+|---|---|
+| `_internal\playwright\driver\node.exe` | **89.24 MB**（单独压缩后 33.34 MB，占 zip 的 64%） |
+| `python312.dll` | 6.6 MB |
+| `libcrypto-3.dll` + `libssl-3.dll` | 5.8 MB |
+| `pythonnet\runtime`（pywebview 依赖 .NET） | 3.2 MB |
+| `sqlite3.dll` / `ucrtbase.dll` / `base_library.zip` | 1.5 / 1.3 / 1.3 MB |
+| Playwright driver `package\lib`（其中 vite 报告界面 3.74 MB） | 6.97 MB |
+
+浏览器用的是系统已装的 Edge（`channel="msedge"`），**没有把 Chromium 打进包**，否则还要再加一百多 MB。
+
+**本轮删掉的（都已验证）**：
+
+| 删除项 | 体积 | 为什么安全 |
+|---|---|---|
+| `driver\package\lib\vite\**` | 3.74 MB | trace viewer / HTML 报告 / 录制器 / dashboard 的界面包，只在 `show-trace`、`show-report`、`codegen` 里用到；本项目只用 API |
+| `playwright\async_api\**` | 0.94 MB | 本项目只用同步 API（`sync_playwright`），且同步 API 不 import 它 |
+| `*.d.ts` / `*.map` | 1.86 MB | 类型声明与 source map（此前已在删） |
+
+**验证（"保证页面功能毫无改变"的依据）**：
+
+1. 用 `PYTHONPATH` 影子加载精简后的 Playwright 副本（**完全不改 venv**），真启动一次 Edge：
+   `launch(channel="msedge")` → `new_context` → `new_page` → `goto` → `set_content` → `inner_text`
+   全部成功，且打印出的包路径确认就是精简副本；
+2. 冻结包精简后再次冒烟：进程正常存活；
+3. 全仓库检索确认没有任何地方 import `async_api`（0 命中）。
+
+**结果**：文件夹 133.44 → **128.76 MB**（385 → 342 个文件），标准 zip 52.09 → **50.75 MB**。
+
+**若在意下载体积**：改用 7z / `.tar.xz`（LZMA2）打包，同样内容实测 **35.62 MB**（比 zip 小 32%），
+代价是接收方需要 7-Zip，或用 Windows 11 自带的解压支持。这属于"换打包格式"，与程序内容无关。
+
+清理步骤已写进 `README.md` 的「打包」章节（`$d = "dist\HomeworkTasks\_internal"` 那三行），可重复执行。
+
 ---
 
 ## ⚠️ 行为变化（升级须知）
