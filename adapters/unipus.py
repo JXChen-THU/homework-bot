@@ -147,7 +147,7 @@ def fetch_homeworks(site, base_dir):
                     f"考试接口失败（{('HTTP %s' % code) if code else data.get('_err')}）")
             if not got:
                 raise FetchFailedError(site["id"], site["name"],
-                                       timeout_detail("U校园考试接口"))
+                                       timeout_detail("U校园考试接口"), timeout=True)
             raise LoginRequiredError(site["id"], site["name"])
         finally:
             try:

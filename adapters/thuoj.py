@@ -165,7 +165,7 @@ def fetch_homeworks(site, base_dir):
             #   真正确定失效的情形（跳登录页 / 明确未登录）走 LoginRequiredError。
             if timed_out and not _is_logged_in(page, site):
                 raise FetchFailedError(site["id"], site["name"],
-                                       timeout_detail("清华 OJ 作业列表"))
+                                       timeout_detail("清华 OJ 作业列表"), timeout=True)
             if not _is_logged_in(page, site):
                 raise LoginRequiredError(site["id"], site["name"])
             return _extract(page, site)

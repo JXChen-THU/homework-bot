@@ -843,15 +843,20 @@ def _session_is_broken(site, base_dir=None):
         return True
 
 
-def _discard_session(site, base_dir=None):
-    """删除损坏的会话文件，让它回到「未登录」状态从而触发重登。"""
+def _discard_session(site, base_dir=None, reason="会话文件损坏"):
+    """删除会话文件，让它回到「未登录」状态从而触发重登。
+
+    `reason` 只进日志：调用它的有两种情况 —— 会话文件读不出合法 JSON（损坏），
+    以及"抓取超时、怀疑会话已被静默作废"（见 `_should_relogin_after_timeout`）。
+    把原因交给调用方，日志才不会在超时路径上说"文件损坏"这种假话。
+    """
     path = _session_file(site, base_dir)
     try:
         os.remove(path)
-        print(f"[fetch] {site.get('name', site.get('id'))}: 会话文件损坏，已删除以便重新登录")
+        print(f"[fetch] {site.get('name', site.get('id'))}: {reason}，已删除会话文件以便重新登录")
         return True
     except Exception as e:
-        print(f"[fetch] {site.get('name')}: 删除损坏会话失败 {type(e).__name__}: {e}")
+        print(f"[fetch] {site.get('name')}: 删除会话失败 {type(e).__name__}: {e}")
         return False
 
 
@@ -863,6 +868,34 @@ def _fetch_one_site(site):
     """
     with _site_lock(site.get("id")):
         return _fetch_one_site_locked(site)
+
+
+def _should_relogin_after_timeout(site, exc):
+    """这次失败是否该"清登录记录 + 静默重登"。
+
+    只认**超时**（`FetchFailedError.timeout`）：接口 5xx、页面结构变化、
+    Playwright 崩溃都不代表会话失效，拿用户的登录状态去赌它们得不偿失。
+
+    而且必须先确认"还登得回来"，否则清会话只会把用户从"一条错误提示"
+    变成"需要登录"，比原来更糟：
+      - 平台不支持账密自动登录（雨课堂只能扫码）→ 不清；
+      - 账密是空的、或密文在这台机器上解不开（换了电脑 / 换了 Windows 账户）→ 不清。
+
+    用户需求原文："把慢的网站也别直接报错了，超时之后就自动清除登录记录重新登陆"。
+    """
+    if not getattr(exc, "timeout", False):
+        return False
+    if not supports_silent_login(site.get("type")):
+        return False
+    try:
+        from adapters.auth import has_credentials, credentials_broken
+        if credentials_broken(site):
+            return False
+        return bool(has_credentials(site))
+    except Exception as e:
+        print(f"[fetch] {_site_label(site)}: 判断能否自动重登失败，按不重登处理"
+              f"（{type(e).__name__}: {e}）")
+        return False
 
 
 def _fetch_one_site_locked(site):
@@ -897,6 +930,12 @@ def _fetch_one_site_locked(site):
             # 都会走到这里，如果不留痕，用户只看到"需要登录"，线上排障零线索。
             print(f"[fetch] {_site_label(site)}: 会话损坏，吞掉异常 "
                   f"{type(e).__name__}: {e}（已删除会话文件并转入重登）")
+        elif _should_relogin_after_timeout(site, e):
+            # 超时且没有任何失效信号：用户要求不再只报错，而是按"会话可能已被
+            # 静默作废"处理 —— 清掉登录记录，走下面共用的静默重登分支。
+            _discard_session(site, reason="抓取超时（会话可能已被静默作废）")
+            print(f"[fetch] {_site_label(site)}: 抓取超时（{type(e).__name__}），"
+                  f"已按需求清除该站点登录记录并转入静默重登")
         else:
             errors.append({
                 "site_name": site.get("name", site.get("id")),

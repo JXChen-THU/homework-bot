@@ -282,7 +282,7 @@ def fetch_homeworks(site, base_dir):
             #   走 FetchFailedError：播报一条可读的错误，用户点刷新重试。
             ctx.close()
             raise FetchFailedError(site["id"], site["name"],
-                                   timeout_detail("网络学堂页面"))
+                                   timeout_detail("网络学堂页面"), timeout=True)
 
         # 优先用配置 -> 其次缓存 -> 最后现场扫描
         configured = site.get("courses") or []

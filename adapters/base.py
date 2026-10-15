@@ -33,11 +33,17 @@ class FetchFailedError(Exception):
     必须与 LoginRequiredError 分开：把接口 500 报成"需要登录"会触发
     一次毫无意义的静默重登（每站 10~60 秒），并且给用户错误的横幅
     —— 会话明明有效，用户却被叫去重新登录。
+
+    `timeout=True` 表示这次失败是"等满了 DATA_READY_MS 仍没内容、又没有任何
+    失效信号"。它比 5xx / 结构变化多一层含义：**会话可能已经被静默作废**，
+    所以 `site_runner` 只对 `timeout=True` 这一类做"清登录记录 + 静默重登"，
+    其余失败只播报错误、不动用户的登录状态。
     """
-    def __init__(self, site_id, site_name, detail=""):
+    def __init__(self, site_id, site_name, detail="", timeout=False):
         self.site_id = site_id
         self.site_name = site_name
         self.detail = detail
+        self.timeout = timeout
         super().__init__(f"{site_name} 抓取失败" + (f"：{detail}" if detail else ""))
 
 

@@ -214,7 +214,7 @@ def fetch_homeworks(site, base_dir):
                     return []
                 if timed_out_unproven:
                     raise FetchFailedError(site["id"], site["name"],
-                                           timeout_detail("数你最灵接口"))
+                                           timeout_detail("数你最灵接口"), timeout=True)
                 raise LoginRequiredError(site["id"], site["name"])
 
             course_ids = [c["id"] for c in courses]
@@ -243,7 +243,7 @@ def fetch_homeworks(site, base_dir):
                 if timed_out_unproven:
                     # 同上：没有失效信号就不要触发重登
                     raise FetchFailedError(site["id"], site["name"],
-                                           timeout_detail("数你最灵作业接口"))
+                                           timeout_detail("数你最灵作业接口"), timeout=True)
                 raise LoginRequiredError(site["id"], site["name"])
 
             return _extract_homeworks(data, site, course_map)

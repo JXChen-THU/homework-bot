@@ -148,7 +148,7 @@ def fetch_homeworks(site, base_dir):
                 # 按抓取超时处理 —— 否则"接口只是慢"也会被拉去做一次白跑的静默重登。
                 if not got:
                     raise FetchFailedError(site["id"], site["name"],
-                                           timeout_detail("Tyche 作业接口"))
+                                           timeout_detail("Tyche 作业接口"), timeout=True)
                 raise LoginRequiredError(site["id"], site["name"])
 
             return _extract(data, site)
