@@ -63,13 +63,14 @@ web（仅指界面外壳：冻结包内是 pywebview + Edge WebView2，页面由
 
 ## Brand Commitments
 
-现有名称：作业清单 / HomeworkTasks（v26.5）。界面语言：简体中文。
+现有名称：作业清单 / HomeworkTasks（v26.6）。界面语言：简体中文。
 **用户未提出任何具有约束力的视觉资产或参考**：无 logo、无指定字体、无指定配色 → 视觉世界可被替换。
-（v26.5 实际选了：楷体_GB2312 + Times，浅色/深色/跟随系统三态；这是实现选择，不是品牌约束。）
+（v26.5 起界面改用**系统字体**：拉丁 Times New Roman + 中文系统楷体，仓库与安装包都不再分发字体文件；
+外观为浅色/深色/跟随系统三态。这是实现选择，不是品牌约束。）
 
 ## Evidence on Hand
 
-- `Work/README.md`：产品事实来源；`Work/docs/changelog/CHANGE v26.1.md` … `CHANGE v26.5.md`（按版本分开的独立文件，没有汇总单文件）。
+- `Work/README.md`：产品事实来源；`Work/docs/changelog/CHANGE v26.1.md` … `CHANGE v26.6.md`（按版本分开的独立文件，没有汇总单文件）。
 - `Work/docs/design/v26.5-UI重构落地记录.md`：v26.5 界面重构的落地记录与验收口径。
 - 真实任务数据形状（`uid` / `title` / `course` / `site_name` / `manual` / `url` / `end` / `done`），来自 `main.js` 的 `render()` 与 `core/task_logic.py`。
 - 真实平台名单与各平台登录差异（README 表格）。
