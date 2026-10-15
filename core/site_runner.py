@@ -890,18 +890,13 @@ def _relogin_ready(site):
         return False
 
 
-def _should_clear_session_before_relogin(site, exc):
-    """重登前要不要**清掉登录记录**：只对超时。
-
-    超时（`FetchFailedError.timeout`）意味着"对方一个字节都没回"，会话可能已被
-    静默作废，清掉是为了拿一份干净的登录状态（用户要求）。
-    接口 5xx / 页面结构变化 / Playwright 崩溃都**不清**：它们不代表会话失效，
-    而重登本来就会写一份新会话，没有清的必要（也免得白把用户踢下线）。
-
-    注意：重登**本身**对任何报错都会尝试（见 `_fetch_one_site_locked`），
-    这里管的只是"重登前要不要清文件"。
-    """
-    return bool(getattr(exc, "timeout", False)) and _relogin_ready(site)
+def _discard_reason(exc):
+    """丢弃旧会话时写进日志的原因（超时 / 需要登录 / 其它失败措辞不同）。"""
+    if exc is None:
+        return "会话已失效（平台要求登录）"
+    if getattr(exc, "timeout", False):
+        return "抓取超时（会话可能已被静默作废）"
+    return f"抓取失败（{type(exc).__name__}），先丢弃旧会话以便真正重登"
 
 
 # 一次抓取里最多连续重登几次。
@@ -925,7 +920,8 @@ def _fetch_one_site_locked(site):
     """抓一个站点。
 
     失败处理（用户要求）：**任何报错都尝试后台静默重登，最多连续 3 次**；
-    其中"超时"这一类在重登前会先清掉该站点的登录记录（会话可能已被静默作废）。
+    重登前会先丢弃该站点那份"刚刚抓取失败"的登录记录 —— 否则重登只会复用它、
+    白转三轮（见下面失败分支的注释）。密码明确错误时**第一遍就停下并提示**，不重跑。
     重登由 `auto_relogin_site()` 执行，它自己还会拦掉三种情况：平台不支持账密登录、
     没有可用账密、以及刚失败过的冷却期。
 
@@ -965,10 +961,6 @@ def _fetch_one_site_locked(site):
                       f"{type(e).__name__}: {e}（已删除会话文件并转入重登）")
                 last_error = None
             else:
-                if _should_clear_session_before_relogin(site, e):
-                    _discard_session(site, reason="抓取超时（会话可能已被静默作废）")
-                    print(f"[fetch] {_site_label(site)}: 抓取超时（{type(e).__name__}），"
-                          f"已按需求清除该站点登录记录并转入静默重登")
                 # 记录原因：重登最终失败时，用户看到的应该是"抓取失败"的真相，
                 # 而不是被笼统地告知"需要登录"。
                 last_error = e
@@ -977,6 +969,21 @@ def _fetch_one_site_locked(site):
         if relogins >= RELOGIN_MAX_CONSECUTIVE:
             print(f"[fetch] {_site_label(site)}: 已连续重登 {relogins} 次仍失败，不再重试")
             break
+        if _relogin_blocked(site.get("id")):
+            print(f"[fetch] {_site_label(site)}: 上次登录失败还在冷却，跳过自动重登")
+            failed_reason = _last_failure_reason(site.get("id")) or ""
+            break
+        if not _relogin_ready(site):
+            # 登不回来（没填账密 / 平台不支持账密登录 / 账密在这台机器解不开）：
+            # 既不重登、也不丢会话 —— 丢了只会把用户踢成"需要登录"。
+            break
+        # ★ 重登前必须先丢掉这份"刚刚判失败"的会话（对 LoginRequiredError 这条最常见的
+        #   路径尤其关键）。否则 silent_login 的第一步会拿它去试（auth.py 的"复用会话检查"），
+        #   只要首页还能打开就回 (True, "session_valid")：并没有真正重登、却白开一次窗口，
+        #   接着重试抓取再次失败 —— "报错 → 重登 → 再报错"正好空转 3 轮，全程几十秒，
+        #   密码错也永远判不出来（用户实测"重登三遍才跳账号密码错误"就是这条）。
+        #   丢掉它，这一轮才是一次**真实登录**：密码错会在第一遍就暴露。
+        _discard_session(site, reason=_discard_reason(last_error))
         if not auto_relogin_site(site):
             # 记下这次重登为什么失败：密码错这类"用户能修"的问题必须**直接**说出来，
             # 不能被原始的抓取错误（超时 / 500）盖在前面。

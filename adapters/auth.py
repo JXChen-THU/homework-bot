@@ -205,7 +205,7 @@ def wait_for_ready(page, condition, *, timeout_ms=5000, interval_ms=200, what=""
 # ★ 用户要求把这一档从 15 秒压到 5 秒（原话："而且把 15s 改成 5s"）。
 #   配套的行为变化很关键：超时**不再只是报错** —— site_runner 会把
 #   "超时且没有任何失效信号"当成"会话可能已被静默作废"，清除该站点的
-#   登录记录并走一次静默重登（见 core/site_runner._should_clear_session_before_relogin）。
+#   登录记录并走一次静默重登（见 core/site_runner._discard_reason）。
 #   所以这个值同时决定了"慢站点被误判成失效"的概率：压得越短越容易触发
 #   一次真实的重新登录。5 秒是用户权衡后的选择。
 # ============================================================
@@ -339,6 +339,33 @@ def _same_location(candidate, others):
     return None
 
 
+def _wait_for_any(page, selectors, timeout_ms, interval_ms=200):
+    """轮询等待任意一个选择器出现可见元素；出现就立刻返回 True。
+
+    替代登录流程里的固定 `wait_for_timeout`：固定 sleep 两头都吃亏 ——
+    快站点白等好几秒（用户实测"给出账号密码错误要等很久"），慢站点还可能等不够。
+    这里沿用 `wait_for_ready` 的思路：条件成立就走，最多等 timeout_ms（上限不变）。
+    """
+    sels = [s for s in (selectors or []) if s]
+    if not sels:
+        return False
+    deadline = time.time() + timeout_ms / 1000.0
+    while True:
+        for sel in sels:
+            try:
+                loc = page.locator(sel).first
+                if loc.count() and loc.is_visible():
+                    return True
+            except Exception:
+                pass
+        if time.time() >= deadline:
+            return False
+        try:
+            page.wait_for_timeout(interval_ms)
+        except Exception:
+            return False
+
+
 def _fill_first(page, selectors, value, timeout=8000):
     """按顺序尝试选择器，填第一个存在的可见元素。返回用到的选择器或 None。
 
@@ -468,6 +495,17 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
 
         page = ctx.new_page()
         page.set_default_timeout(20000)
+
+        # 登录表单的选择器：下面所有"等页面就绪"都以"表单出现"为准，
+        # 不再睡固定秒数（见 _wait_for_any）。
+        form_sels = list(cfg.get("username") or []) + list(cfg.get("password") or [])
+
+        def _wait_form(cap_ms, what):
+            if _wait_for_any(page, form_sels, cap_ms):
+                return True
+            _log(f"{what}：{cap_ms}ms 内没看到登录输入框，继续按流程尝试")
+            return False
+
         try:
             # 1) 先看现有会话是否还有效（有 storage_state 时）
             if seed:
@@ -489,23 +527,27 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
                 _log(f"打开登录页失败：{str(e)[:120]}")
                 browser.close()
                 return False, "login_page_error"
-            page.wait_for_timeout(cfg.get("after_goto_wait", 2500))
-
             # 3) 需要先点开的入口（例如网络学堂的「登录」按钮）
             pre_click = cfg.get("pre_click")
             if pre_click:
+                # 有入口要点的站点，表单要点了才出来：先等入口出现再点，
+                # 点完再等表单（都是"出现就走"，不再睡固定秒数）。
+                _wait_for_any(page, pre_click, cfg.get("after_goto_wait", 2500))
                 hit = _click_first(page, pre_click, timeout=8000)
                 if hit:
                     _log(f"点击登录入口：{hit}")
-                    page.wait_for_timeout(cfg.get("after_pre_click_wait", 4000))
+                    _wait_form(cfg.get("after_pre_click_wait", 4000), "点击登录入口后")
+            else:
+                _wait_form(cfg.get("after_goto_wait", 2500), "打开登录页后")
 
             # 3b) 第二段点击（例如清华 OJ：先展开下拉，再点「使用 清华ID 登录」）
             pre_click2 = cfg.get("pre_click2")
             if pre_click2:
+                _wait_for_any(page, pre_click2, cfg.get("after_pre_click_wait", 4000))
                 hit2 = _click_first(page, pre_click2, timeout=8000)
                 if hit2:
                     _log(f"点击登录入口2：{hit2}")
-                    page.wait_for_timeout(cfg.get("after_pre_click2_wait", 5000))
+                    _wait_form(cfg.get("after_pre_click2_wait", 5000), "点击登录入口2后")
 
             # 4) 选学校之类的选择器（数你最灵）
             #    选校失败不能直接当成"密码错误"：以前丢弃返回值继续提交，
@@ -534,7 +576,7 @@ def silent_login(site, base_dir, *, timeout_ms=60000, log=None, offscreen=False)
                     _log(f"未出现登录表单，改用兜底登录页 {cfg['fallback_url']}")
                     try:
                         page.goto(cfg["fallback_url"], wait_until="domcontentloaded", timeout=45000)
-                        page.wait_for_timeout(cfg.get("after_fallback_wait", 4000))
+                        _wait_form(cfg.get("after_fallback_wait", 4000), "兜底登录页")
                     except Exception as e:
                         _log(f"兜底登录页打开失败：{str(e)[:120]}")
                     if _looks_like_mfa(page, cfg):
