@@ -75,6 +75,10 @@ LOGIN = {
     "password": ["#password", "input[name=password]"],
     "submit": ["button.submit", "button:has-text('登录')", "input[type=submit]"],
     "after_goto_wait": 2500,
+    # 整个 Tyche 在 Basic Auth 后面：登录页打开了却没有账号密码输入框，
+    # 只可能是那对 Basic Auth 凭据没填/填错（服务器回 401，页面里没有表单）。
+    # 命中时上报 basic_auth_failed，界面直接引导用户重填 Basic Auth 两项。
+    "no_form_means_basic_auth": True,
 }
 
 

@@ -152,6 +152,10 @@ const LOGIN_HINTS = {
     text: '登录过程发生错误，请重试或手动登录',
     btn: '重试登录',
   },
+  basic_auth_failed: {
+    text: 'Tyche 的 Basic Auth 账号或密码有误，请重新填写', btn: '重新填写账号密码' },
+  network_unreachable: {
+    text: '连不上该站点：需要校园网/VPN，请连接后刷新任务', btn: '重试' },
   default: {
     text: '登录状态已失效，请重新登录',
     btn: '登录',
@@ -161,7 +165,7 @@ const LOGIN_HINTS = {
 // 这些原因点下去是「重新填凭据」（openCredDialog），其余原因一律弹浏览器登录窗口。
 // 显式白名单而不是 if/else 兜底：将来后端新增 reason 时默认落到「弹登录窗口」
 // 这个安全动作，不会被静默当成填凭据。
-const CRED_DIALOG_REASONS = ['bad_credentials', 'no_credentials'];
+const CRED_DIALOG_REASONS = ['bad_credentials', 'no_credentials', 'basic_auth_failed'];
 
 // 首次运行引导（后端 gate，见 core.controller.get_homeworks 的启动闸门）
 let gatePending = false;

@@ -13,7 +13,8 @@ import time
 import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from adapters import REGISTRY
-from adapters.base import LoginRequiredError
+from adapters.base import (LoginRequiredError, network_error_code,
+                        network_error_message)
 from core import paths as _paths
 
 
@@ -940,6 +941,8 @@ def _verdict_reporter(site):
     label = _site_label(site)
     texts = {
         "bad_credentials": "账号或密码有误，请重新填写（本次请求即将结束）",
+        "basic_auth_failed": "Basic Auth 账号或密码有误，请重新填写（本次请求即将结束）",
+        "network_unreachable": "连不上该站点，检查校园网/VPN（本次请求即将结束）",
         "school_select_failed": "学校选择未成功，请重新选择（本次请求即将结束）",
         "no_credentials": "尚未配置账号密码",
         "mfa": "需要验证码确认，请点击「登录」处理（本次请求即将结束）",
@@ -970,6 +973,8 @@ RELOGIN_MAX_CONSECUTIVE = 1
 # （超时 / 500 / 页面改版）盖在前面。用户要求："我专门改错密码，你要在收到密码错误的
 # 时候就直接提示出来，不要重复登录。"
 _CREDENTIAL_FAILURE_REASONS = {
+    # Basic Auth 凭据不对（Tyche）：也是"用户能自己修"的一类，直接提示重填。
+    "basic_auth_failed",
     "bad_credentials",         # 密码错（平台明确回"用户名或密码不正确"）
     "school_select_failed",    # 选校没成功：服务端回的是凭据错误，要修的是选校
     "no_credentials",          # 账号密码是空的
@@ -1033,6 +1038,13 @@ def _fetch_one_site_locked(site):
                 # 记录原因：重登最终失败时，用户看到的应该是"抓取失败"的真相，
                 # 而不是被笼统地告知"需要登录"。
                 last_error = e
+                if network_error_code(e):
+                    # 连不上对方（校园网没连 / VPN 没开）：再重登也是连不上，
+                    # 不要白跑一轮登录（那还要 5 秒 + 一次浏览器启停）。
+                    # 直接把「连 VPN 后刷新任务」作为终局结论给用户。
+                    failed_reason = "network_unreachable"
+                    print(f"[fetch] {_site_label(site)}: 网络不可达，跳过自动重登并直接提示用户")
+                    break
                 if getattr(e, "credentials", False):
                     # 凭据本身就被服务器拒了（例如 Tyche 的 Basic Auth 回 401）：
                     # 重登不可能把它变对，只会白跑一轮。当场按"账号密码可能不对"上报，
@@ -1069,7 +1081,18 @@ def _fetch_one_site_locked(site):
             break
         relogins += 1
 
-    if last_error is not None and failed_reason not in _CREDENTIAL_FAILURE_REASONS:
+    if failed_reason == "network_unreachable" or (
+            last_error is not None and network_error_code(last_error)):
+        # 网络层失败：给一句能照做的话（连校园网/VPN 后刷新），
+        # 而不是把 net::ERR_CONNECTION_TIMED_OUT 原文甩出去。
+        name = site.get("name", site.get("id"))
+        code = network_error_code(last_error) if last_error is not None else None
+        entry = {"site_name": name, "message": network_error_message(name, code)}
+        lines = diagnostics(tail=3)
+        if lines:
+            entry["detail"] = " / ".join(lines)
+        errors.append(entry)
+    elif last_error is not None and failed_reason not in _CREDENTIAL_FAILURE_REASONS:
         entry = {
             "site_name": site.get("name", site.get("id")),
             "message": _error_message(last_error),
@@ -1098,6 +1121,8 @@ def _fetch_one_site_locked(site):
 _relogin_cooldown = {}          # site_id -> 下次允许尝试的时间戳
 _relogin_cooldown_lock = threading.Lock()
 _RELOGIN_COOLDOWN_S = {
+    # Basic Auth 填错同理：30 分钟内不再自动撞（重填凭据会立刻清掉冷却）。
+    "basic_auth_failed": 1800,
     "mfa": 600,                 # 需要人工过验证码：10 分钟内不再自动尝试
     "bad_credentials": 1800,    # 账号密码不对：30 分钟内不再自动尝试
 }
@@ -1333,6 +1358,8 @@ def _stronger_reason(a, b):
 
 # 后端 reason → 前端话术键。前端 LOGIN_HINTS 按这里的取值取话术。
 _REASON_TO_FRONTEND = {
+    "basic_auth_failed": "basic_auth_failed",
+    "network_unreachable": "network_unreachable",
     "bad_credentials": "bad_credentials",
     "session_save_unusable": "session_unstable",
     "mfa": "mfa",

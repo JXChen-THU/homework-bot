@@ -56,6 +56,34 @@ class FetchFailedError(Exception):
         super().__init__(f"{site_name} 抓取失败" + (f"：{detail}" if detail else ""))
 
 
+# Chromium 的网络层错误码。这些**不是**站点故障，而是"这台机器连不上对方"，
+# 最典型的场景是校园站点（Tyche 就是）没连校园网/VPN。命中时要给用户一句能照做的话，
+# 而不是把 "net::ERR_CONNECTION_TIMED_OUT" 这种原文甩出去。
+NET_ERROR_CODES = (
+    "ERR_CONNECTION_TIMED_OUT", "ERR_TIMED_OUT", "ERR_CONNECTION_REFUSED",
+    "ERR_NAME_NOT_RESOLVED", "ERR_ADDRESS_UNREACHABLE", "ERR_INTERNET_DISCONNECTED",
+    "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_ABORTED",
+    "ERR_EMPTY_RESPONSE", "ERR_NETWORK_CHANGED", "ERR_PROXY_CONNECTION_FAILED",
+    "ERR_TUNNEL_CONNECTION_FAILED", "ERR_SSL_PROTOCOL_ERROR",
+)
+
+
+def network_error_code(text):
+    """从异常文本里认出 Chromium 网络错误码；没命中返回 None。"""
+    s = str(text or "")
+    for code in NET_ERROR_CODES:
+        if code in s:
+            return code
+    return None
+
+
+def network_error_message(site_name, code=None):
+    """网络层失败时给用户看的话：指明站点、说明需要校园网/VPN、给出下一步动作。"""
+    tail = f"（{code}）" if code else ""
+    return (f"无法连接到 {site_name}{tail}：该站点需要校园网/VPN。"
+            f"请连接校园 VPN 后点「刷新任务」重试。")
+
+
 def session_path(base_dir, site):
     """会话文件路径的**唯一口径**：配置里没写 session 时按站点 id 推断。
 

@@ -615,6 +615,33 @@ Node 运行时，删了就没有自动登录与自动抓取；Chromium 本来就
 （只改了签名没赋值），使「跳过重登」的补丁形同不存在 —— 由离线探针抓出。这类「改了签名忘了
 赋值」的错误不会有语法错，只会让行为与预期不一致，必须靠断言才能发现。
 
+### 18. 按用户给的两条现场做自动判类（Tyche）
+
+用户把两种现场直接贴了过来：
+
+| 现场（界面 + 诊断摘要） | 用户要求的处置 |
+|---|---|
+| 界面「登录页面无法打开，请检查网络后重试」，摘要里出现 `找不到登录输入框(user=None pass=None)` | 这说明 Tyche 的 **Basic Auth** 有问题 → 让用户重填 Basic Auth 账号密码 |
+| 摘要里出现 `net::ERR_CONNECTION_TIMED_OUT at http://166.111.236.164:6080/tyche` | 这说明**校园网/VPN 没连** → 告诉用户「无法连接上 Tyche，请使用校园 VPN 后重新刷新任务」 |
+
+落地：
+
+| 规则 | 实现 | 用户看到什么 |
+|---|---|---|
+| 登录页打开了、却没有账号密码输入框 | `tyche.LOGIN["no_form_means_basic_auth"] = True` ⇒ `silent_login` 返回新 reason **`basic_auth_failed`** | 「Tyche 的 Basic Auth 账号或密码有误，请重新填写」+ 按钮直接打开**重填凭据弹窗**（Tyche 会显示 Basic Auth 两项）；30 分钟冷却，重填即清 |
+| `ERR_CONNECTION_TIMED_OUT` / `ERR_NAME_NOT_RESOLVED` / `ERR_CONNECTION_REFUSED` 等 14 个网络错误码 | `adapters/base.network_error_code()` 识别；抓取阶段命中就**终止本轮**（连不上就没必要再登录一遍，省一次 5 秒预算 + 一次浏览器启停）并作为 error 条目上报 | 「无法连接到 Tyche（ERR_CONNECTION_TIMED_OUT）：该站点需要校园网/VPN。请连接校园 VPN 后点「刷新任务」重试。」 |
+| 登录阶段的 goto 连不上 | `silent_login` 同样区分：网络错误 → `network_unreachable`（不再一律说成 `login_page_error`） | 同上那句话，不会再被说成「登录页打不开」 |
+| 主文档直接回 401 | 立即判 `basic_auth_failed`（上一轮已加） | 同上第一条 |
+
+验证（离线探针 + 真实网络）：
+
+| 场景 | 结果 |
+|---|---|
+| 无表单（Basic Auth 未通过） | 上报 `basic_auth_failed` ✓；不再显示「登录页打不开，请检查网络」✓ |
+| 抓取阶段网络错误 | **0 次登录** ✓；提示含站点名与「校园 VPN」✓；不误报成「需要登录」✓ |
+| 真实网络：Tyche 指向本机没人监听的端口 | `ERR_CONNECTION_REFUSED` 命中网络判类 ✓（0.7 秒返回） |
+| 14 个错误码的正反例 | 命中正确；普通错误不误判 ✓ |
+
 ---
 
 ## ⚠️ 行为变化（升级须知）

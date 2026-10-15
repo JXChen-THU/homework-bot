@@ -577,6 +577,12 @@ def silent_login(site, base_dir, *, timeout_ms=5000, log=None, offscreen=False,
             except Exception as e:
                 _log(f"打开登录页失败：{str(e)[:120]}")
                 browser.close()
+                # 连不上（校园网没连/VPN 没开）要和"登录页坏了"分开：前者用户自己就能解决。
+                from .base import network_error_code
+                if network_error_code(e):
+                    return False, "network_unreachable"
+                if "ERR_INVALID_AUTH_CREDENTIALS" in str(e):
+                    return False, "basic_auth_failed"
                 return False, "login_page_error"
             # 3) 需要先点开的入口（例如网络学堂的「登录」按钮）
             pre_click = cfg.get("pre_click")
@@ -640,6 +646,12 @@ def silent_login(site, base_dir, *, timeout_ms=5000, log=None, offscreen=False,
             if not (user_sel and pass_sel):
                 _log(f"找不到登录输入框（user={user_sel} pass={pass_sel}）")
                 browser.close()
+                # 站点在 Basic Auth 后面（Tyche）时，"登录页打开了却没有表单"只可能是
+                # 那对 Basic Auth 凭据没填/填错 —— 服务器回 401，页面里当然没有输入框。
+                # 判成 basic_auth_failed，界面才能把用户引到"重填 Basic Auth"那个入口，
+                # 而不是显示一句"登录页打不开，请检查网络"（那条会把人带偏）。
+                if cfg.get("no_form_means_basic_auth"):
+                    return False, "basic_auth_failed"
                 return False, "no_login_form"
             _log(f"已填写账号密码（{user_sel} / {pass_sel}）")
             page.wait_for_timeout(300)
