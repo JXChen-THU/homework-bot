@@ -5,6 +5,7 @@
 import os
 import sys
 import json
+import subprocess
 import threading
 import time
 import uuid
@@ -1161,6 +1162,38 @@ class Api:
 # ============================================================
 # 主窗口关闭：任何方式关闭 → 退出程序
 # ============================================================
+def _shutdown_cleanup():
+    r"""退出前的收尾：等抓取线程一小会儿，然后把它拉起的浏览器进程一起结束。
+
+    为什么必须做：抓取与静默登录跑在**工作线程**里，用的是 Playwright。
+    用户在抓取过程中点 X，主窗口一关、进程就进入退出流程，而 Playwright 的驱动
+    （`_internal\playwright\driver\node.exe`）和它拉起的 `msedge.exe` **不会自己死** ——
+    任务管理器里就会出现「程序已经关了，却还有一堆 node.exe / msedge.exe 在跑」，
+    而且它们的可执行文件路径正是本程序的目录，看起来就像「exe 还在跑」。
+    """
+    # 1) 抓取还在跑的话，给它一点时间自己收尾（Playwright 正常关闭是干净的）
+    try:
+        if _fetch_lock.acquire(timeout=2.0):
+            _fetch_lock.release()
+    except Exception:
+        pass
+
+    # 2) 兜底：把自己名下的 node.exe（Playwright 驱动）连整棵子树一起结束。
+    #    只按「本进程的直接子进程」筛选，**绝不能**用 /IM node.exe 这种全局匹配 ——
+    #    那会把用户自己的 Node 开发进程一起杀掉。
+    try:
+        ps = (r"""
+$p = %d
+Get-CimInstance Win32_Process -Filter "ParentProcessId=$p" |
+  Where-Object { $_.Name -match '^(node|msedge|chrome)\.exe$' } |
+  ForEach-Object { taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null }
+""" % os.getpid())
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                       timeout=15, creationflags=0x08000000)   # CREATE_NO_WINDOW：别闪黑框
+    except Exception as e:
+        print(f"[exit] 清理浏览器子进程失败（不影响退出）：{type(e).__name__}: {e}")
+
+
 def _on_main_closing():
     """主窗口被关闭（标题栏 X / 任务栏右键关闭 / Alt+F4）
     → 销毁所有窗口，退出程序。"""
@@ -1329,6 +1362,10 @@ def main():
             layout_all()
 
         webview.start(_after_start)
+
+        # 主窗口关闭后走到这里：把工作线程拉起的浏览器进程一起带走，
+        # 否则任务管理器里会留下 node.exe / msedge.exe（见 _shutdown_cleanup）。
+        _shutdown_cleanup()
     except Exception as e:
         print(f"[gui] 界面启动失败：{type(e).__name__}: {e}")
         _fatal_dialog(
