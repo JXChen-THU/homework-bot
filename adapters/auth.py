@@ -21,7 +21,6 @@
 """
 
 import os
-import threading
 import time
 from contextlib import contextmanager
 

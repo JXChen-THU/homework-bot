@@ -514,6 +514,56 @@ v26.5给红窗加过一个下限 `URGENT_PAST_GRACE_HOURS = 72`（过期超过 3
 
 清理步骤已写进 `README.md` 的「打包」章节（`$d = "dist\HomeworkTasks\_internal"` 那三行），可重复执行。
 
+### 16. 代码与构建层面精简（用户要求：精简代码，打包仍用 zip）
+
+用户要求原文：「能不能就用 zip，到时候我自己打包，你现在要做的是精简代码」。
+
+**一、死代码审计**（自写分析器：全仓库按标识符边界统计引用，覆盖 `_paths.ensure_dirs()`
+这类"带点前缀调用"，避免把在用代码误判为死代码）：
+
+| 检查项 | 结果 |
+|---|---|
+| Python 模块级定义（函数/类/常量）无人引用 | **0 处** |
+| JS 顶层函数/常量无人引用 | **0 处** |
+| 未使用的 import | **2 处** → 已删（`adapters/auth.py` 的 `threading`、`core/secrets.py` 的 `sys`） |
+
+> 分析器第一版有漏判：`(?<![\w.])` 这种边界会把 `_paths.ensure_dirs()` 排除在计数之外，
+> 以致把**在用**的 `ensure_dirs()` 报成死代码。修正边界后复跑为 0 处 —— 这类工具必须反向核对。
+
+**二、构建层面的"代码"精简**：旧配方 `--collect-all playwright` 会把 Playwright 自己的
+`.py` 源码当**数据文件**复制进包（63 个、1.38 MB，其中 `sync_api/_generated.py` 就 0.93 MB），
+还会生成本项目用不到的异步 API 字节码。新配方按类型精确收集：
+
+```powershell
+--collect-submodules playwright --collect-binaries playwright --collect-data playwright `
+--exclude-module playwright.async_api
+```
+
+效果：包内 Playwright `.py` 源码 **63 → 0 个**，`playwright/async_api/` 不再生成。
+
+**三、验证（"毫无改变"的依据）**：
+
+1. **冻结探针**：用新配方单独冻结一个 3 行的 Playwright 程序（`launch(channel="msedge")` →
+   `new_page` → `goto` → `set_content` → `inner_text`），生成的 exe 运行输出
+   `FROZEN-OK frozen-ok` —— 证明新配方在**冻结环境**下仍能启动浏览器并操作页面；
+2. **影子包测试**：把精简后的 Playwright 用 `PYTHONPATH` 影子加载（不动 venv），
+   真启动 Edge 成功，且确认加载的是精简副本；
+3. **冻结包冒烟**：正式包启动后进程正常存活；
+4. 全仓库检索：没有任何地方 import `async_api`。
+
+**四、结果对比**：
+
+| | 文件夹 | 文件数 | 标准 zip |
+|---|---|---|---|
+| 精简前 | 133.44 MB | 385 | 52.09 MB |
+| 精简后 | **127.13 MB** | **271** | **50.26 MB** |
+
+**五、剩下的减不动**：`playwright/driver/node.exe` 89.24 MB（占 zip 的 64%）是驱动系统 Edge 的
+Node 运行时，删了就没有自动登录与自动抓取；Chromium 本来就没打进包（用的是系统 Edge）。
+所以"功能完全不变"的前提下，50 MB 的 zip 已经接近下限。
+
+清理步骤与配方都已写进 `README.md` 的「打包」章节，可重复执行。
+
 ---
 
 ## ⚠️ 行为变化（升级须知）

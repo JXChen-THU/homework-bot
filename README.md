@@ -188,31 +188,40 @@ PyInstaller，在项目目录运行这条等价命令：
 .\.venv\Scripts\python.exe -m pip install pyinstaller
 .\.venv\Scripts\python.exe -m PyInstaller --noconsole --name HomeworkTasks `
   --icon icon.ico --add-data "web;web" --add-data "sites.yaml.template;." `
-  --collect-all playwright app.py
+  --collect-submodules playwright --collect-binaries playwright --collect-data playwright `
+  --exclude-module playwright.async_api app.py
 ```
+
+这里刻意**不用 `--collect-all playwright`**：那会把 Playwright 自己的 `.py` 源码当数据文件塞进包
+（63 个文件、1.4 MB），还会带上本项目用不到的异步 API。上面这条配方按类型精确收集，
+包内 Playwright `.py` 源码为 **0 个**；`--exclude-module playwright.async_api` 则连异步 API
+的字节码都不生成（本项目只用 `sync_playwright`，已用冻结探针真启动 Edge 验证过）。
 
 结果位于 `dist/HomeworkTasks/`。它只收集 `web/`、`sites.yaml.template` 与 playwright 运行时
 （界面用**系统字体**，所以没有字体相关的 `--add-data`）。
 
-发布前再做一次清理（文件夹约省 5 MB，zip 约省 1.3 MB；这些文件运行时用不到，
-已用"真启动一次 Edge 并操作页面"验证过）：
+发布前再做一次清理（文件夹约省 5.6 MB）：类型声明 / source map，以及 Playwright 的
+测试报告 / 追踪查看器 / 录制器界面 —— 它们只在 `show-report`、`show-trace`、`codegen`
+这类命令里用到，本项目只用 API（"删掉后仍能真启动 Edge 并操作页面"已验证）：
 
 ```powershell
 $d = "dist\HomeworkTasks\_internal"
 Get-ChildItem $d -Recurse -File | Where-Object { $_.Name -like "*.d.ts" -or $_.Extension -eq ".map" } | Remove-Item -Force
-Remove-Item "$d\playwright\driver\package\lib\vite" -Recurse -Force   # 测试报告 / 追踪查看器 / 录制器界面
-Remove-Item "$d\playwright\async_api" -Recurse -Force                 # 本项目只用同步 API
+Remove-Item "$d\playwright\driver\package\lib\vite" -Recurse -Force
 ```
 
-### 包为什么这么大（约 129 MB / zip 约 51 MB）
+### 包为什么这么大（约 127 MB / zip 约 50 MB）
 
 - `_internal\playwright\driver\node.exe` 一个就 **89 MB**：这是驱动浏览器做自动登录的 Node 运行时，
   不是浏览器本身。浏览器用的是**系统已安装的 Edge**（`channel="msedge"`），所以没有把 Chromium
   打进包 —— 否则还要再加一百多 MB。
 - 其余是 Python 运行时与依赖：`python312.dll` 6.6 MB、`libcrypto/libssl` 5.8 MB、
   `pythonnet`（pywebview 用）3.2 MB、`sqlite3.dll` 1.5 MB 等。
-- 如果更在意**下载体积**，可以改用 7z / `.tar.xz`（LZMA）打包：同样内容约 **36 MB**（实测），
-  代价是接收方需要 7-Zip，或使用 Windows 11 自带的解压支持。
+- **代码与构建层面能减的已经减完**：仓库里死定义 0 处、未用导入 0 个；旧配方
+  `--collect-all playwright` 会把 Playwright 的 `.py` 源码当数据文件塞进包（63 个、1.4 MB），
+  现已改为精确收集（包内 `.py` 源码 0 个）；测试报告 / 追踪查看器界面（3.7 MB）也已剔除。
+  合计：文件夹 133 → **127 MB**，文件 385 → **271 个**，标准 zip 52 → **50 MB**。
+- 再往下减就得动那个 89 MB 的 Node 运行时，也就是放弃自动登录/自动抓取 —— 不属于"功能不变"的范畴。
 
 ⚠️ 发布前请确认分享包里没有你自己的 `sites.yaml` 或 `data/` —— **运行过一次产物里的 exe 后，
 它会在产物目录里就地生成这两项，压缩分享前要先删掉。**

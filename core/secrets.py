@@ -24,7 +24,6 @@ DPAPI 解密。它的目标是「文件被看到时没有明文」，例如误�
 import base64
 import ctypes
 import os
-import sys
 
 PREFIX = "enc:v1:"
 
