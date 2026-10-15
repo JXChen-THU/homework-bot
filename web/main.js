@@ -113,35 +113,35 @@ function fmtRemaining(ms) {
 //   唯一例外是按钮的失败话术（见下面点击处理），那里未收录时用更贴切的通用句。
 const LOGIN_HINTS = {
   no_credentials: {
-    text: '未填账号密码，无法自动登录',
+    text: '未配置账号密码，无法自动登录',
     btn: '登录',
   },
   qr_code: {
-    text: '需要微信扫码，无法自动登录',
+    text: '该平台仅支持微信扫码登录',
     btn: '扫码登录',
   },
   manual_required: {
-    text: '自动登录已尝试，需要你确认一次验证码',
-    btn: '去验证',
+    text: '自动登录需要验证码确认',
+    btn: '输入验证码',
   },
   bad_credentials: {
-    text: '自动登录失败，账号或密码可能不对，请点按钮重新填写',
-    btn: '重新填账号密码',
+    text: '自动登录失败：账号或密码有误，请重新填写',
+    btn: '重新填写账号密码',
   },
   session_unstable: {
-    text: '登录成功了但会话没能保存下来，请再点一次登录',
+    text: '登录成功，但登录状态未能保存，请重试登录',
     btn: '重试登录',
   },
   mfa: {
-    text: '自动登录已尝试，需要你确认一次验证码',
-    btn: '去验证',
+    text: '自动登录需要验证码确认',
+    btn: '输入验证码',
   },
   no_adapter_support: {
     text: '该平台不支持自动登录，请手动登录',
     btn: '手动登录',
   },
   login_page_error: {
-    text: '登录页打不开，请检查网络后重试',
+    text: '登录页面无法打开，请检查网络后重试',
     btn: '重试登录',
   },
   timeout: {
@@ -149,11 +149,11 @@ const LOGIN_HINTS = {
     btn: '重试登录',
   },
   exception: {
-    text: '登录过程出错，请重试或手动登录',
+    text: '登录过程发生错误，请重试或手动登录',
     btn: '重试登录',
   },
   default: {
-    text: '登录状态已失效',
+    text: '登录状态已失效，请重新登录',
     btn: '登录',
   },
 };
@@ -187,7 +187,7 @@ function needLoginRowsHtml(needLogin) {
 // 把 need_login 那一段渲染出来（普通路径用）。
 function needLoginHtml(needLogin) {
   if (!needLogin || !needLogin.length) return '';
-  return '<div class="banner warn"><div>需要登录以下站点：</div>'
+  return '<div class="banner warn"><div>以下站点需要登录：</div>'
     + needLoginRowsHtml(needLogin) + '</div>';
 }
 
@@ -195,17 +195,17 @@ function needLoginHtml(needLogin) {
 // 这里刻意把「为什么没有任务」说清楚 —— 否则用户看到空列表会以为程序坏了。
 function gateHtml(gate, needLogin) {
   const msg = (gate && gate.message)
-    || '这是第一次运行：还没有任何登录状态，请先在「设置」里填好账号密码。';
+    || '首次启动：尚未检测到登录状态，请先在「设置」中配置账号密码。';
   const rows = needLoginRowsHtml(needLogin);
 
   return '<div class="banner setup">'
     + `<div class="setup-title">${escapeHtml(msg)}</div>`
     + '<div class="setup-steps">'
-    + '<div>① 点下面任一「填账号密码」，把要用的站点填好（雨课堂只能扫码，先不用管）。</div>'
-    + '<div>② 填完会自动开始抓取；也可以随时点右上角「刷新任务」。</div>'
-    + '<div>③ 只想手动记作业的话，用「添加任务」即可，不必登录任何站点。</div>'
+    + '<div>① 在下方选择站点并填写账号密码（雨课堂仅支持扫码登录，可暂不配置）。</div>'
+    + '<div>② 配置完成后将自动开始抓取，也可随时执行「刷新任务」。</div>'
+    + '<div>③ 如需手动记录任务，可使用「添加任务」，无需登录任何站点。</div>'
     + '</div>'
-    + (rows ? '<div class="setup-sites"><div class="setup-sub">要抓取的站点：</div>' + rows + '</div>' : '')
+    + (rows ? '<div class="setup-sites"><div class="setup-sub">待配置站点：</div>' + rows + '</div>' : '')
     + '<div class="setup-actions">'
     + '<button class="setup-open-settings" data-open-settings="1">打开设置</button>'
     + '</div>'
@@ -262,7 +262,7 @@ function renderBanners(errors, needLogin, startup, gate) {
       }
 
       btn.disabled = true;
-      btn.textContent = '正在打开登录窗口...';
+      btn.textContent = '正在打开登录窗口…';
 
       try {
         const r = await window.pywebview.api.login(siteId);
@@ -281,13 +281,13 @@ function renderBanners(errors, needLogin, startup, gate) {
         const failHint = failReason ? LOGIN_HINTS[failReason] : null;
         btn.disabled = false;
         btn.textContent = failHint
-          ? '未完成：' + failHint.text + '，点击重试'
-          : '登录未完成，点击重试';
+          ? '未完成：' + failHint.text + '，请重试'
+          : '登录未完成，请重试';
       } catch (e) {
         // pywebview 会把 Python 异常变成 rejected promise；
         // 不在这里恢复，按钮会永久停在 disabled 的「正在打开登录窗口...」
         btn.disabled = false;
-        btn.textContent = '登录出错，点击重试';
+        btn.textContent = '登录出错，请重试';
       }
     });
   });
@@ -321,21 +321,21 @@ function render() {
     if (currentTab === 'todo') {
       if (gatePending) {
         // 首次运行：这里"空"是因为还没有登录状态，不是"任务都做完了"。
-        // 用绿色那句「太棒了」会把用户误导成"没事可做"。
+        // 用绿色那句「全部完成」会把用户误导成"没事可做"。
         content.innerHTML = `
           <div class="empty setup">
-            <div class="msg">还没有登录任何站点</div>
-            <div class="sub">在上面的引导里填好账号密码，或点「添加任务」手动记一条作业。</div>
-            <div class="sub">填完会自动开始抓取。</div>
+            <div class="msg">尚未登录任何站点</div>
+            <div class="sub">请按上方引导配置账号密码，或使用「添加任务」手动记录。</div>
+            <div class="sub">配置完成后将自动开始抓取。</div>
           </div>`;
       } else {
         content.innerHTML = `
           <div class="empty">
-            <div class="msg">所有任务都已完成，太棒了！</div>
+            <div class="msg">全部任务均已完成</div>
           </div>`;
       }
     } else {
-      content.innerHTML = `<div class="empty">还没有已完成的任务</div>`;
+      content.innerHTML = `<div class="empty">暂无已完成任务</div>`;
     }
     return;
   }
@@ -352,7 +352,7 @@ function render() {
       : `<span class="badge">${escapeHtml(it.site_name)}</span>`;
 
     const courseBadge = it.course ? `<span class="badge">${escapeHtml(it.course)}</span>` : '';
-    const dueText = it.end ? `截止：${escapeHtml(it.end)}` : '无截止时间';
+    const dueText = it.end ? `截止：${escapeHtml(it.end)}` : '未设置截止时间';
     const delBtn = it.manual ? `<button class="del" data-del="${escapeHtml(it.uid)}">删除</button>` : '';
 
     // 原网页链接：适配器抓到的作业深链、以及手动任务里手填的「链接」,
@@ -394,7 +394,7 @@ function render() {
       } catch (err) {
         // 后端没保存成功，勾选状态要退回，否则界面和真实数据不一致
         box.checked = !done;
-        alert('保存勾选状态失败：' + err);
+        alert('保存完成状态失败：' + err);
         return;
       } finally {
         // 失败回滚后必须解禁，否则这一行再也点不动。
@@ -411,7 +411,7 @@ function render() {
   content.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const uid = btn.dataset.del;
-      if (!confirm('确定要删除这条手动任务吗？')) return;
+      if (!confirm('确认删除该手动任务？')) return;
       let r;
       try {
         r = await window.pywebview.api.delete_task(uid);
@@ -451,7 +451,7 @@ function render() {
 // ============================================================
 async function load() {
   refreshBtn.disabled = true;
-  loadingHint.textContent = '任务刷新中，请等待…';
+  loadingHint.textContent = '正在刷新任务，请稍候…';
 
   // 任何一次抓取都显示进度区（手动刷新、启动首次抓取都算）。
   // 无任务时也照常显示 —— 它反映的是抓取状态，与有没有任务无关。
@@ -468,7 +468,7 @@ async function load() {
     renderBanners(res.errors || [], res.need_login || [], res.startup || [], res.gate || null);
     render();
   } catch (e) {
-    banners.innerHTML = `<div class="banner err">出错了：${escapeHtml(e)}</div>`;
+    banners.innerHTML = `<div class="banner err">请求失败：${escapeHtml(e)}</div>`;
     // 列表本来是空的（首次加载就失败）才会出现「空白区 + 计数停在 0」这种
     // 看着像"没有任务"的假象，这里给它一个明确的空态。
     // 已经有内容时保持旧列表不动：抓取失败不该把用户正在看的任务擦掉。
@@ -476,7 +476,7 @@ async function load() {
       content.innerHTML = `
         <div class="empty failed">
           <div class="msg">加载失败</div>
-          <div class="sub">点右上角的「刷新任务」重试</div>
+          <div class="sub">请点击右上角「刷新任务」重试</div>
         </div>`;
       document.getElementById('cnt-todo').textContent = '0';
       document.getElementById('cnt-done').textContent = '0';
@@ -541,7 +541,7 @@ document.getElementById('m-ok').addEventListener('click', async () => {
   const dueRaw = document.getElementById('m-due').value;
   const url = document.getElementById('m-url').value.trim();
 
-  if (!title) { modalError.textContent = '请填写标题'; return; }
+  if (!title) { modalError.textContent = '请填写任务标题'; return; }
   if (!dueRaw) { modalError.textContent = '请填写截止时间'; return; }
 
   const due = dueRaw.replace('T', ' ') + (dueRaw.length === 16 ? ':00' : '');
@@ -583,13 +583,13 @@ async function openSettings() {
 
 async function refreshSitesPanel() {
   const list = document.getElementById('site-list');
-  list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">加载中...</div>';
+  list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">加载中…</div>';
   let res;
   try {
     res = await window.pywebview.api.list_sites();
   } catch (err) {
     // 不处理会一直停在「加载中...」
-    list.innerHTML = `<div style="padding:20px;text-align:center;color:#e74c3c;">读取网站列表失败：${escapeHtml(err)}</div>`;
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:#e74c3c;">读取站点列表失败：${escapeHtml(err)}</div>`;
     return;
   }
   sitesFullInfo = res.sites || [];
@@ -603,7 +603,7 @@ async function refreshSitesPanel() {
 function renderSites() {
   const list = document.getElementById('site-list');
   if (!sitesFullInfo.length) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">还没有配置任何网站</div>';
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:#95a5a6;">尚未配置任何站点</div>';
     return;
   }
 
@@ -621,9 +621,9 @@ function renderSites() {
     if (deleted) rowCls.push('deleted');
 
     const clearBtnCls = clearing ? 'pending' : '';
-    const clearBtnText = clearing ? '将清除（点撤销）' : '清除登录';
+    const clearBtnText = clearing ? '将清除（点击撤销）' : '清除登录';
     const delBtnCls = deleted ? 'pending' : 'danger';
-    const delBtnText = deleted ? '将删除（点撤销）' : '删除';
+    const delBtnText = deleted ? '将删除（点击撤销）' : '删除';
 
     let credBadge = '';
     let credBtn = '';
@@ -636,11 +636,11 @@ function renderSites() {
     if (supportsSilentLogin) {
       if (s.credentials_broken) {
         // 换了电脑或 Windows 账户，密文解不开
-        credBadge = '<span class="cred broken">密码需重填</span>';
+        credBadge = '<span class="cred broken">密码需重新填写</span>';
       } else if (!s.has_credentials) {
-        credBadge = '<span class="cred">未填账号密码</span>';
+        credBadge = '<span class="cred">未配置账号密码</span>';
       }
-      credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填账号密码</button>`;
+      credBtn = `<button class="cred-btn" data-cred="${escapeHtml(s.id)}">填写账号密码</button>`;
     }
 
     return `

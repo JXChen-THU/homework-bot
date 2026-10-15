@@ -192,7 +192,7 @@ def _progress_result_line(site, homeworks, errors, need_login):
         return f"[{name}] 需要登录"
     if errors:
         return f"[{name}] 抓取失败"
-    return f"[{name}] 完成 {len(homeworks)} 条"
+    return f"[{name}] 已获取 {len(homeworks)} 条"
 
 
 
@@ -741,7 +741,7 @@ def fetch_all():
     sites = load_sites()
     cfg_err = config_error()
     if cfg_err:
-        # 不能静默返回空：界面会把"配置坏了"显示成"所有任务都已完成，太棒了！"
+        # 不能静默返回空：界面会把"配置坏了"显示成"全部任务均已完成"，用户会以为没事可做。
         return [], [{
             "site_name": "配置",
             "message": (
@@ -909,8 +909,8 @@ def _error_message(exc):
     """
     detail = str(exc).strip()
     if not detail:
-        detail = ("没有更多细节（可点「刷新任务」重试；"
-                  "仍不行就在「设置」里清除该站点登录后重新登录）")
+        detail = ("无更多信息（可执行「刷新任务」重试；"
+                  "仍无法解决，请在「设置」中清除该站点登录状态后重新登录）")
     if detail == type(exc).__name__:
         detail = detail + "（异常自身的说明就是类名）"
     return f"{type(exc).__name__}: {detail}"
@@ -924,15 +924,15 @@ def _verdict_reporter(site):
     """
     label = _site_label(site)
     texts = {
-        "bad_credentials": "账号或密码可能不对，请重新填写（正在收尾）",
-        "school_select_failed": "选校没成功，请重新选择学校（正在收尾）",
-        "no_credentials": "还没有填账号密码",
-        "mfa": "需要一次验证码，请点「登录」处理（正在收尾）",
-        "no_adapter_support": "该平台不支持账密自动登录",
-        "session_save_unusable": "登录成功但会话存不下来（正在收尾）",
+        "bad_credentials": "账号或密码有误，请重新填写（本次请求即将结束）",
+        "school_select_failed": "学校选择未成功，请重新选择（本次请求即将结束）",
+        "no_credentials": "尚未配置账号密码",
+        "mfa": "需要验证码确认，请点击「登录」处理（本次请求即将结束）",
+        "no_adapter_support": "该平台不支持账号密码自动登录",
+        "session_save_unusable": "登录成功，但登录状态未能保存（本次请求即将结束）",
     }
     def cb(reason):
-        _emit_progress(f"[{label}] {texts.get(reason, '登录没有成功（正在收尾）')}")
+        _emit_progress(f"[{label}] {texts.get(reason, '登录未成功（本次请求即将结束）')}")
     return cb
 
 
