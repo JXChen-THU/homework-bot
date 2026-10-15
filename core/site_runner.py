@@ -784,10 +784,16 @@ def fetch_all():
                 hw, er, nl = fut.result()
             except Exception as e:
                 # _fetch_one_site 内部已经兜了异常，这里只是最后一道保险
-                hw, er, nl = [], [{
+                # 防呆：站点线程整个崩掉时也必须留下一条能看懂的记录，
+                # 不能让这个站点从结果里凭空消失（用户会以为它"没有作业"）。
+                crash = {
                     "site_name": site.get("name", site.get("id")),
-                    "message": f"{type(e).__name__}: {e}",
-                }], []
+                    "message": "抓取线程异常：" + _error_message(e),
+                }
+                lines = diagnostics(tail=3)
+                if lines:
+                    crash["detail"] = " / ".join(lines)
+                hw, er, nl = [], [crash], []
             # 注意：这三行必须在 except 之外，否则正常完成的站点结果会被丢掉
             homeworks.extend(hw)
             errors.extend(er)
@@ -853,11 +859,16 @@ def _discard_session(site, base_dir=None, reason="会话文件损坏"):
     path = _session_file(site, base_dir)
     try:
         os.remove(path)
-        print(f"[fetch] {site.get('name', site.get('id'))}: {reason}，已删除会话文件以便重新登录")
-        return True
+    except FileNotFoundError:
+        # 防呆：同一轮里可能已经删过一次（损坏自愈 → 重登前再丢一次），
+        # 文件不存在是正常情况。以前会打一条"删除会话失败 FileNotFoundError"，
+        # 而这条日志会进诊断摘要、上送给用户，看着像出了故障。
+        return False
     except Exception as e:
         print(f"[fetch] {site.get('name')}: 删除会话失败 {type(e).__name__}: {e}")
         return False
+    print(f"[fetch] {site.get('name', site.get('id'))}: {reason}，已删除会话文件以便重新登录")
+    return True
 
 
 def _fetch_one_site(site):
@@ -888,6 +899,21 @@ def _relogin_ready(site):
         print(f"[fetch] {_site_label(site)}: 判断能否自动重登失败，按不能处理"
               f"（{type(e).__name__}: {e}）")
         return False
+
+
+def _error_message(exc):
+    """把异常压成给用户看的一句话：**绝不允许只有类名、后面空着**。
+
+    防呆：`FetchFailedError(site, name)` 这类不带 detail 的异常，`str(e)` 可能是空串，
+    界面上就会出现"网络学堂：FetchFailedError:"这种等于没说的提示。
+    """
+    detail = str(exc).strip()
+    if not detail:
+        detail = ("没有更多细节（可点「刷新任务」重试；"
+                  "仍不行就在「设置」里清除该站点登录后重新登录）")
+    if detail == type(exc).__name__:
+        detail = detail + "（异常自身的说明就是类名）"
+    return f"{type(exc).__name__}: {detail}"
 
 
 def _verdict_reporter(site):
@@ -1020,10 +1046,16 @@ def _fetch_one_site_locked(site):
         relogins += 1
 
     if last_error is not None and failed_reason not in _CREDENTIAL_FAILURE_REASONS:
-        errors.append({
+        entry = {
             "site_name": site.get("name", site.get("id")),
-            "message": f"{type(last_error).__name__}: {last_error}",
-        })
+            "message": _error_message(last_error),
+        }
+        # 防呆：报错时也带上最近几行诊断 —— 冻结包没有控制台，
+        # 用户报障时唯一能给出来的线索就是这几行。
+        lines = diagnostics(tail=3)
+        if lines:
+            entry["detail"] = " / ".join(lines)
+        errors.append(entry)
     else:
         # 两种情况都交给前端提示（reason 让它给出更准确的话术）：
         #   1) last_error 为空 —— 本来就是"需要登录"；

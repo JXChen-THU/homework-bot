@@ -236,7 +236,8 @@ function renderBanners(errors, needLogin, startup, gate) {
   if (errors && errors.length) {
     html += '<div class="banner err">';
     errors.forEach(e => {
-      html += `<div>${escapeHtml(e.site_name)}：${escapeHtml(e.message)}</div>`;
+      html += `<div>${escapeHtml(e.site_name)}：${escapeHtml(e.message)}</div>`
+        + (e.detail ? `<div class="need-login-detail">${escapeHtml(e.detail)}</div>` : '');
     });
     html += '</div>';
   }
@@ -829,13 +830,21 @@ document.getElementById('cred-ok').addEventListener('click', async () => {
     credError.textContent = '请填写学校全名';
     return;
   }
+  // 防呆：Basic Auth 这一对要么都填、要么都留空。
+  // 只填一个会被后端当成"改这一项"，把另一个擦成空串；
+  // 两个都空表示"不改动"，绝不覆盖已存好的 Basic 凭据。
+  if (bindingVisible && Boolean(bu) !== Boolean(bp)) {
+    credError.textContent = 'Basic Auth 的账号和密码要一起填（都留空表示不改动）';
+    return;
+  }
+  const basicPair = (bu && bp) ? [bu, bp] : null;
   let r;
   try {
     r = await window.pywebview.api.save_site_credentials(
       credSiteId, u, p,
       schoolVisible ? school : null,
-      bindingVisible ? bu : null,
-      bindingVisible ? bp : null
+      (bindingVisible && basicPair) ? basicPair[0] : null,
+      (bindingVisible && basicPair) ? basicPair[1] : null
     );
   } catch (err) {
     credError.textContent = '保存失败：' + err;
