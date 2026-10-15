@@ -870,21 +870,13 @@ def _fetch_one_site(site):
         return _fetch_one_site_locked(site)
 
 
-def _should_relogin_after_timeout(site, exc):
-    """这次失败是否该"清登录记录 + 静默重登"。
+def _relogin_ready(site):
+    """这个站点能不能自动重登（平台支持账密登录，且有能在这台机器解开的账密）。
 
-    只认**超时**（`FetchFailedError.timeout`）：接口 5xx、页面结构变化、
-    Playwright 崩溃都不代表会话失效，拿用户的登录状态去赌它们得不偿失。
-
-    而且必须先确认"还登得回来"，否则清会话只会把用户从"一条错误提示"
-    变成"需要登录"，比原来更糟：
-      - 平台不支持账密自动登录（雨课堂只能扫码）→ 不清；
-      - 账密是空的、或密文在这台机器上解不开（换了电脑 / 换了 Windows 账户）→ 不清。
-
-    用户需求原文："把慢的网站也别直接报错了，超时之后就自动清除登录记录重新登陆"。
+    它决定两件事：值不值得发起重登、以及"要不要先清掉登录记录"。
+      - 平台不支持账密自动登录（雨课堂只能扫码）→ 不能；
+      - 账密是空的、或密文在这台机器上解不开（换了电脑 / 换了 Windows 账户）→ 不能。
     """
-    if not getattr(exc, "timeout", False):
-        return False
     if not supports_silent_login(site.get("type")):
         return False
     try:
@@ -893,13 +885,39 @@ def _should_relogin_after_timeout(site, exc):
             return False
         return bool(has_credentials(site))
     except Exception as e:
-        print(f"[fetch] {_site_label(site)}: 判断能否自动重登失败，按不重登处理"
+        print(f"[fetch] {_site_label(site)}: 判断能否自动重登失败，按不能处理"
               f"（{type(e).__name__}: {e}）")
         return False
 
 
+def _should_clear_session_before_relogin(site, exc):
+    """重登前要不要**清掉登录记录**：只对超时。
+
+    超时（`FetchFailedError.timeout`）意味着"对方一个字节都没回"，会话可能已被
+    静默作废，清掉是为了拿一份干净的登录状态（用户要求）。
+    接口 5xx / 页面结构变化 / Playwright 崩溃都**不清**：它们不代表会话失效，
+    而重登本来就会写一份新会话，没有清的必要（也免得白把用户踢下线）。
+
+    注意：重登**本身**对任何报错都会尝试（见 `_fetch_one_site_locked`），
+    这里管的只是"重登前要不要清文件"。
+    """
+    return bool(getattr(exc, "timeout", False)) and _relogin_ready(site)
+
+
+# 一次抓取里最多连续重登几次。
+# 用户要求："只要报错什么就尝试重登，最多连续重登三次"。
+# 上限是必需的：每次重登都是真实登录（10~60 秒，清华 SSO 还可能弹窗），
+# 没有上限就会变成"报错 → 重登 → 再报错"的无限循环，把一次刷新卡死。
+RELOGIN_MAX_CONSECUTIVE = 3
+
+
 def _fetch_one_site_locked(site):
     """抓一个站点。
+
+    失败处理（用户要求）：**任何报错都尝试后台静默重登，最多连续 3 次**；
+    其中"超时"这一类在重登前会先清掉该站点的登录记录（会话可能已被静默作废）。
+    重登由 `auto_relogin_site()` 执行，它自己还会拦掉三种情况：平台不支持账密登录、
+    没有可用账密、以及刚失败过的冷却期。
 
     每个 return 之前都播报结果 —— 这是唯一需要维护的进度挂钩点。
     """
@@ -915,54 +933,51 @@ def _fetch_one_site_locked(site):
         _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
         return homeworks, errors, need_login
 
-    try:
-        items = adapter.fetch_homeworks(site, DATA_DIR)
-        homeworks.extend(items)
-        _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
-        return homeworks, errors, need_login
-    except LoginRequiredError:
-        pass
-    except Exception as e:
-        # 会话文件损坏时不要把错误当终局：删掉坏文件，走重登分支自愈
-        if _session_is_broken(site):
-            _discard_session(site)
-            # 自愈不能以"丢失原因"为代价：选择器失效、接口 500、Playwright 崩
-            # 都会走到这里，如果不留痕，用户只看到"需要登录"，线上排障零线索。
-            print(f"[fetch] {_site_label(site)}: 会话损坏，吞掉异常 "
-                  f"{type(e).__name__}: {e}（已删除会话文件并转入重登）")
-        elif _should_relogin_after_timeout(site, e):
-            # 超时且没有任何失效信号：用户要求不再只报错，而是按"会话可能已被
-            # 静默作废"处理 —— 清掉登录记录，走下面共用的静默重登分支。
-            _discard_session(site, reason="抓取超时（会话可能已被静默作废）")
-            print(f"[fetch] {_site_label(site)}: 抓取超时（{type(e).__name__}），"
-                  f"已按需求清除该站点登录记录并转入静默重登")
-        else:
-            errors.append({
-                "site_name": site.get("name", site.get("id")),
-                "message": f"{type(e).__name__}: {e}",
-            })
-            _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
-            return homeworks, errors, need_login
-
-    # ---------- 会话失效：尝试后台静默重登 ----------
-    if auto_relogin_site(site):
+    relogins = 0            # 本轮已经连续重登的次数
+    last_error = None       # 最后一次"抓取本身失败"的原因；None 表示该提示"需要登录"
+    while True:
         try:
             items = adapter.fetch_homeworks(site, DATA_DIR)
             homeworks.extend(items)
             _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
             return homeworks, errors, need_login
         except LoginRequiredError:
-            pass
+            # 平台明确说"要登录"：重登失败时提示"需要登录"，而不是报"抓取失败"
+            last_error = None
         except Exception as e:
-            errors.append({
-                "site_name": site.get("name", site.get("id")),
-                "message": f"{type(e).__name__}: {e}",
-            })
-            _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
-            return homeworks, errors, need_login
+            if _session_is_broken(site):
+                # 会话文件损坏时不要把错误当终局：删掉坏文件，走重登自愈。
+                # 自愈不能以"丢失原因"为代价：选择器失效、接口 500、Playwright 崩
+                # 都会走到这里，如果不留痕，用户只看到"需要登录"，线上排障零线索。
+                _discard_session(site)
+                print(f"[fetch] {_site_label(site)}: 会话损坏，吞掉异常 "
+                      f"{type(e).__name__}: {e}（已删除会话文件并转入重登）")
+                last_error = None
+            else:
+                if _should_clear_session_before_relogin(site, e):
+                    _discard_session(site, reason="抓取超时（会话可能已被静默作废）")
+                    print(f"[fetch] {_site_label(site)}: 抓取超时（{type(e).__name__}），"
+                          f"已按需求清除该站点登录记录并转入静默重登")
+                # 记录原因：重登最终失败时，用户看到的应该是"抓取失败"的真相，
+                # 而不是被笼统地告知"需要登录"。
+                last_error = e
 
-    # 静默登录不可用 / 失败 → 交给前端提示（reason 让前端能给出更准确的话术）
-    need_login.append(_need_login_entry(site))
+        # ---------- 报错了：尝试重登，最多连续 RELOGIN_MAX_CONSECUTIVE 次 ----------
+        if relogins >= RELOGIN_MAX_CONSECUTIVE:
+            print(f"[fetch] {_site_label(site)}: 已连续重登 {relogins} 次仍失败，不再重试")
+            break
+        if not auto_relogin_site(site):
+            break
+        relogins += 1
+
+    if last_error is not None:
+        errors.append({
+            "site_name": site.get("name", site.get("id")),
+            "message": f"{type(last_error).__name__}: {last_error}",
+        })
+    else:
+        # 静默登录不可用 / 失败 → 交给前端提示（reason 让前端能给出更准确的话术）
+        need_login.append(_need_login_entry(site))
     _emit_progress(_progress_result_line(site, homeworks, errors, need_login))
     return homeworks, errors, need_login
 

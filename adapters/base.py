@@ -36,8 +36,10 @@ class FetchFailedError(Exception):
 
     `timeout=True` 表示这次失败是"等满了 DATA_READY_MS 仍没内容、又没有任何
     失效信号"。它比 5xx / 结构变化多一层含义：**会话可能已经被静默作废**，
-    所以 `site_runner` 只对 `timeout=True` 这一类做"清登录记录 + 静默重登"，
-    其余失败只播报错误、不动用户的登录状态。
+    所以 `site_runner` 会在重登前先清掉该站点的登录记录。
+
+    注意 `timeout` 只管"要不要清登录记录"：**任何**抓取失败都会触发一次静默重登
+    （最多连续 3 次，见 `site_runner.RELOGIN_MAX_CONSECUTIVE`）。
     """
     def __init__(self, site_id, site_name, detail="", timeout=False):
         self.site_id = site_id
