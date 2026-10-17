@@ -1361,7 +1361,21 @@ def main():
             time.sleep(0.3)
             layout_all()
 
-        webview.start(_after_start)
+        # ★ 界面外壳的存储必须是**持久**目录，否则界面偏好记不住。
+        #   默认值是个坑：pywebview 的 private_mode 默认 True，而这里原来既没关它、
+        #   也没给 storage_path —— winforms 后端于是走
+        #   `cache_dir = tempfile.TemporaryDirectory().name`（每次启动一个随机临时目录），
+        #   窗口关闭时再由 clear_user_data() 把整个目录 rmtree。结果 localStorage 每次全清：
+        #   用户在「设置 → 外观」里选「深色」，下次启动 theme-boot.js 读不到 hwThemeMode，
+        #   只能回落成 auto（跟随系统）—— 也就是「切了深色，再打开又变回跟随系统」。
+        #   按 WebView2 官方建议，把 UDF 放进应用自己的数据目录（与 sites.yaml、data/ 同级；
+        #   paths.ROOT 已保证可写，必要时已回退到 %LOCALAPPDATA%\HomeworkTasks），
+        #   并关掉界面外壳的隐私模式。两个实例共用同一 UDF 是官方支持的用法
+        #   （同一登录会话内共享一个浏览器进程），所以这里不引入新的多实例问题。
+        #   注意关掉的只是**界面外壳**的隐私模式：抓取走 Playwright 与 data/*_session.json，
+        #   完全不受影响；UDF 里存的是主题这类界面偏好与本地页面缓存。
+        webview.start(_after_start, private_mode=False,
+                      storage_path=os.path.join(paths.ROOT or BASE, "webview"))
 
         # 主窗口关闭后走到这里：把工作线程拉起的浏览器进程一起带走，
         # 否则任务管理器里会留下 node.exe / msedge.exe（见 _shutdown_cleanup）。

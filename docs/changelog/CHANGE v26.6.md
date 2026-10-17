@@ -331,6 +331,29 @@
 
 v26.5 给红窗加过一个下限 `URGENT_PAST_GRACE_HOURS = 72`（过期超过 3 天的降级到白窗）。**用户明确要求取消它**，所以 `core/task_logic.py` 删掉该常量，`compute_urgent` 只判上界：未完成、`end` 能解析、`hours_left <= 24` 就进红窗，**包括已经过期任意久的任务**；文件头注释保留了这段历史。已知副作用（用户已知悉并接受）：列表按 `hours_left` 升序，过期越久越靠前，最陈旧的作业会出现在红窗最上面几行；红窗一次最多显示 8 条。文档同步：README 的功能列表与「红色浮窗没有显示？」一问都改成了「所有已过期都算紧急」。
 
+### 4.3 主题选择现在能记住：修「切了深色，再打开又变回跟随系统」
+
+用户报障原话：**「怎么我现在切换成深色再打开还是变成跟随系统」**。
+
+**根因**：主题模式只存在 `localStorage` 的 `hwThemeMode` 里，而**界面外壳的存储是临时的**。`controller.main()` 原来调用 `webview.start(_after_start)` —— pywebview 的 `private_mode` 默认 `True`，又没有给 `storage_path`，于是 winforms 后端走到：
+
+```python
+cache_dir = tempfile.TemporaryDirectory().name    # 每次启动一个随机临时目录
+```
+
+窗口关闭时 `clear_user_data()` 再把整个目录 `rmtree`。结果：**运行期间切主题有效**（三个窗口还能靠 `storage` 事件实时同步），**但退出即清空** —— 下次启动 `theme-boot.js` 读不到键，按规则回落成 `auto`（跟随系统）。
+
+**修法**：`webview.start(_after_start, private_mode=False, storage_path=<数据根>\webview)`。按 WebView2 官方建议把用户数据目录（UDF）放进应用自己的数据目录（与 `sites.yaml`、`data/` 同级；`paths.ROOT` 已保证可写，必要时已回退到 `%LOCALAPPDATA%\HomeworkTasks`），并关掉界面外壳的隐私模式。**两个实例共用同一 UDF 是官方支持的用法**（同一登录会话内共享一个浏览器进程），所以不引入新的多实例问题。关掉的只是**界面外壳**的隐私模式：抓取走 Playwright 与 `data/*_session.json`，完全不受影响。
+
+**验证（前后对照实验：加载真实 `web/index.html`，窗口隐藏，两次独立进程）**：
+
+| 配置 | 第 1 次运行（选「深色」） | 第 2 次运行（模拟重开程序） |
+|---|---|---|
+| 修改前（默认 private_mode，无 storage_path） | `localStorage = dark` | `localStorage = None`、`mode() = auto`、`<html data-lg-dark>` 不存在（**就是用户看到的现象**） |
+| 修改后 | `localStorage = dark` | **`localStorage = dark`、`mode() = dark`、`<html data-lg-dark>` 存在** |
+
+UDF 实测留在磁盘上（166 个文件 / 约 16 MB），不再被删除；`webview/` 已加入 `.gitignore`。
+
 ---
 
 ## 🧹 五、仓库、构建与包体
@@ -415,6 +438,7 @@ v26.5 给红窗加过一个下限 `URGENT_PAST_GRACE_HOURS = 72`（过期超过 
 - **前端 22 条断言**：用系统 Edge 打开真实的 `web/index.html`（只 mock `window.pywebview`），覆盖引导条渲染、文案、按钮落点（未填账密 → 开填密码弹窗而不是弹登录窗）、空态、设置面板、回调成「没有 gate」后引导条消失。
 - **独立核验**：另一 agent 独立建脚本复核判定口径、老用户兼容、数据不丢、前端回归，抓到「短路分支只读缓存不写回」的缺陷并给出最小复现，修完后回归通过。
 - **Tyche 时间口径核对**（见 3.5）：无后缀按 UTC 换算、带 `Z` / 带偏移不二次偏移、空值与非法值原样兜底、端到端倒计时由负转正；并从冻结包的 PYZ 字节码复核该修复确实随包发布。
+- **主题持久化前后对照**（见 4.3）：同一份 `web/index.html`、隐藏窗口、两次独立进程 —— 修改前第二次读到 `None`（回落 auto），修改后读到 `dark` 且 `<html data-lg-dark>` 存在。
 
 **真实环境**
 
