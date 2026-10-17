@@ -1,5 +1,6 @@
 import os
-from .base import Homework, LoginRequiredError, FetchFailedError, session_path
+from .base import (Homework, LoginRequiredError, FetchFailedError, session_path,
+                   utc_iso_to_local)
 
 
 def _creds(site):
@@ -42,9 +43,11 @@ def _extract(data, site):
         tid = t.get("tid")
         if tid is None:
             continue
-        # "2026-09-27T16:00:00" → "2026-09-27 16:00:00"
-        start = (t.get("startTime") or "").replace("T", " ")
-        end = (t.get("endTime") or "").replace("T", " ")
+        # Tyche 的 startTime/endTime 是 **UTC 且不带时区后缀**，必须换算成本机时间：
+        # "2026-10-18T15:59:00" 是北京时间的 2026-10-18 23:59，直接透传会早 8 小时
+        #（红窗提前 8 小时报警、倒计时全错）。见 base.utc_iso_to_local。
+        start = utc_iso_to_local(t.get("startTime"))
+        end = utc_iso_to_local(t.get("endTime"))
         result.append(Homework(
             site=site["id"],
             site_name=site["name"],
